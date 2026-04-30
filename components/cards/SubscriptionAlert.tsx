@@ -7,6 +7,7 @@ import React, { memo, useCallback } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { RADIUS, SPACING, TYPOGRAPHY } from '../../constants/design';
 import { useHaptics } from '../../hooks/useTransactions';
+import { useT } from '../../i18n';
 import { Subscription } from '../../types/subscription';
 import { formatCurrency } from '../../utils/analytics';
 
@@ -20,6 +21,7 @@ export const SubscriptionAlert = memo(function SubscriptionAlert({
   colors,
 }: SubscriptionAlertProps) {
   const { light } = useHaptics();
+  const { t } = useT();
 
   const handlePress = useCallback(() => {
     light();
@@ -28,8 +30,14 @@ export const SubscriptionAlert = memo(function SubscriptionAlert({
 
   if (!subscriptions.length) return null;
 
-  const totalWasted = subscriptions.reduce((t, s) => t + s.amount, 0);
+  const totalWasted = subscriptions.reduce((sum, s) => sum + s.amount, 0);
   const count = subscriptions.length;
+  // Use distinct singular/plural keys instead of inline string concatenation
+  // — Urdu and Hindi don't add an "s" for plurals, so a one-key-fits-all
+  // approach would render incorrectly.
+  const isOne = count === 1;
+  const titleKey = isOne ? 'subscriptionAlert.title' : 'subscriptionAlert.titlePlural';
+  const bodyKey = isOne ? 'subscriptionAlert.bodyOne' : 'subscriptionAlert.bodyMany';
 
   return (
     <Pressable
@@ -47,10 +55,10 @@ export const SubscriptionAlert = memo(function SubscriptionAlert({
 
       <View style={styles.content}>
         <Text style={[styles.title, { color: colors.textPrimary }]}>
-          {count} subscription{count > 1 ? 's' : ''} sitting unused
+          {t(titleKey, { count })}
         </Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          {formatCurrency(totalWasted)}/month for {count === 1 ? 'a service' : 'services'} you have not opened recently.
+          {t(bodyKey, { amount: formatCurrency(totalWasted) })}
         </Text>
       </View>
 

@@ -14,6 +14,7 @@ import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RADIUS, SPACING, SPRING, TYPOGRAPHY } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
+import { useT } from '../../i18n';
 
 interface SmsPermissionSheetProps {
   visible: boolean;
@@ -32,6 +33,7 @@ export const SmsPermissionSheet = memo(function SmsPermissionSheet({
 }: SmsPermissionSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { t } = useT();
 
   const handleOpenSettings = () => {
     Linking.openSettings();
@@ -68,18 +70,21 @@ export const SmsPermissionSheet = memo(function SmsPermissionSheet({
           </View>
 
           <Text style={[styles.title, { color: colors.textPrimary }]}>
-            Read bank alerts, nothing else
+            {t('smsPermissionSheet.title')}
           </Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            FlowMoney scans only bank/transaction SMS to populate your spending. Personal
-            messages are never read or stored.
+            {t('smsPermissionSheet.subtitle')}
           </Text>
 
           <View style={[styles.exampleCard, { backgroundColor: colors.backgroundSecondary }]}>
-            <Text style={[styles.exampleLabel, { color: colors.textTertiary }]}>EXAMPLE</Text>
-            <Text style={[styles.exampleSender, { color: colors.textPrimary }]}>HBL-Alert</Text>
+            <Text style={[styles.exampleLabel, { color: colors.textTertiary }]}>
+              {t('smsPermissionSheet.exampleLabel')}
+            </Text>
+            <Text style={[styles.exampleSender, { color: colors.textPrimary }]}>
+              {t('smsPermissionSheet.exampleSender')}
+            </Text>
             <Text style={[styles.exampleBody, { color: colors.textSecondary }]}>
-              Debit Rs. 1,250 at FOODPANDA on 12-Apr. Avl Bal: Rs. 84,310.
+              {t('smsPermissionSheet.exampleBody')}
             </Text>
           </View>
 
@@ -87,19 +92,19 @@ export const SmsPermissionSheet = memo(function SmsPermissionSheet({
             <Bullet
               icon="check"
               color={colors.positive}
-              text="Stays on this phone — no server, no upload."
+              text={t('smsPermissionSheet.bulletStaysOnPhone')}
               colors={colors}
             />
             <Bullet
               icon="check"
               color={colors.positive}
-              text="Reads only messages that look financial."
+              text={t('smsPermissionSheet.bulletReadsFinancial')}
               colors={colors}
             />
             <Bullet
               icon="x"
               color={colors.danger}
-              text="Never reads OTPs, friends' messages, or media."
+              text={t('smsPermissionSheet.bulletNeverReadsOtps')}
               colors={colors}
             />
           </View>
@@ -113,11 +118,10 @@ export const SmsPermissionSheet = memo(function SmsPermissionSheet({
                   { backgroundColor: colors.accent, opacity: pressed ? 0.92 : 1 },
                 ]}
               >
-                <Text style={styles.primaryText}>Open Settings</Text>
+                <Text style={styles.primaryText}>{t('smsPermissionSheet.openSettings')}</Text>
               </Pressable>
               <Text style={[styles.helperText, { color: colors.textTertiary }]}>
-                Permission was denied. Enable SMS access for FlowMoney in Settings to
-                continue.
+                {t('smsPermissionSheet.deniedHelper')}
               </Text>
             </>
           ) : (
@@ -129,14 +133,16 @@ export const SmsPermissionSheet = memo(function SmsPermissionSheet({
               ]}
             >
               <Text style={styles.primaryText}>
-                {Platform.OS === 'android' ? 'Continue' : 'Got it'}
+                {t(Platform.OS === 'android'
+                  ? 'smsPermissionSheet.continue'
+                  : 'smsPermissionSheet.iosGotIt')}
               </Text>
             </Pressable>
           )}
 
           <Pressable onPress={onDismiss} style={styles.secondaryBtn} hitSlop={6}>
             <Text style={[styles.secondaryText, { color: colors.textSecondary }]}>
-              Not now
+              {t('common.notNow')}
             </Text>
           </Pressable>
         </Animated.View>

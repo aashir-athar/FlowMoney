@@ -21,7 +21,6 @@ import {
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  CATEGORY_META,
   RADIUS,
   SPACING,
   SPRING,
@@ -29,6 +28,7 @@ import {
 } from '../constants/design';
 import { useColors } from '../hooks/useTheme';
 import { useHaptics } from '../hooks/useTransactions';
+import { useT } from '../i18n';
 import { useAppStore } from '../store/useAppStore';
 import { TransactionCategory, TransactionType } from '../types/transaction';
 
@@ -43,10 +43,6 @@ const ALL_CATEGORIES: TransactionCategory[] = [
   'other',
 ];
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 // Allow digits with at most one decimal separator and 2 decimal places.
 // Up to 9 integer digits caps out at Rs. 999,999,999 — far beyond realistic
 // single-transaction sizes while preventing overflow into Number imprecision.
@@ -55,44 +51,48 @@ const MAX_AMOUNT = 1_000_000_000;
 const MAX_MERCHANT_LEN = 60;
 
 interface ValidationState {
-  amountError: string | null;
-  merchantError: string | null;
+  amountErrorKey: string | null;
+  merchantErrorKey: string | null;
   isValid: boolean;
 }
 
+// Validation returns translation keys (not strings) so the displayed
+// message stays in sync with the active locale even after the user
+// switches language while the modal is open.
 function validate(amount: string, merchant: string): ValidationState {
   const trimmedMerchant = merchant.trim();
-  let amountError: string | null = null;
-  let merchantError: string | null = null;
+  let amountErrorKey: string | null = null;
+  let merchantErrorKey: string | null = null;
 
   if (amount.length > 0) {
     const parsed = parseFloat(amount);
     if (Number.isNaN(parsed)) {
-      amountError = 'Enter a number';
+      amountErrorKey = 'addTransaction.errorEnterNumber';
     } else if (parsed <= 0) {
-      amountError = 'Amount must be more than zero';
+      amountErrorKey = 'addTransaction.errorMustBePositive';
     } else if (parsed >= MAX_AMOUNT) {
-      amountError = 'That amount is too large';
+      amountErrorKey = 'addTransaction.errorTooLarge';
     }
   }
 
   if (merchant.length > 0 && trimmedMerchant.length === 0) {
-    merchantError = 'Add a merchant or description';
+    merchantErrorKey = 'addTransaction.errorAddMerchant';
   }
 
   const isValid =
     amount.length > 0 &&
     trimmedMerchant.length > 0 &&
-    !amountError &&
-    !merchantError;
+    !amountErrorKey &&
+    !merchantErrorKey;
 
-  return { amountError, merchantError, isValid };
+  return { amountErrorKey, merchantErrorKey, isValid };
 }
 
 export default function AddTransactionScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { light, success, error } = useHaptics();
+  const { t } = useT();
   const addTransaction = useAppStore((s) => s.addTransaction);
 
   const [amount, setAmount] = useState('');
@@ -110,23 +110,26 @@ export default function AddTransactionScreen() {
   }, []);
 
   const validation = useMemo(() => validate(amount, merchant), [amount, merchant]);
-  const { amountError, merchantError, isValid } = validation;
+  const { amountErrorKey, merchantErrorKey, isValid } = validation;
 
   // Show field-level errors only after the user has interacted with the form.
-  const showAmountError = touched && !!amountError;
-  const showMerchantError = touched && !!merchantError;
+  const showAmountError = touched && !!amountErrorKey;
+  const showMerchantError = touched && !!merchantErrorKey;
 
-  // The Save button shows a contextual hint when blocked — clearer than a
-  // dead grey button with no explanation.
+  // Resolve error keys to localised text at render time.
+  const amountError = amountErrorKey ? t(amountErrorKey) : null;
+  const merchantError = merchantErrorKey ? t(merchantErrorKey) : null;
+
+  // Contextual hint shown beneath a blocked Save button.
   const blockedHint = useMemo(() => {
     if (isValid) return null;
-    if (!amount && !merchant.trim()) return 'Enter an amount and merchant';
-    if (!amount) return 'Enter an amount';
+    if (!amount && !merchant.trim()) return t('addTransaction.hintEnterBoth');
+    if (!amount) return t('addTransaction.hintEnterAmount');
     if (amountError) return amountError;
-    if (!merchant.trim()) return 'Add a merchant or description';
+    if (!merchant.trim()) return t('addTransaction.errorAddMerchant');
     if (merchantError) return merchantError;
     return null;
-  }, [isValid, amount, merchant, amountError, merchantError]);
+  }, [isValid, amount, merchant, amountError, merchantError, t]);
 
   const handleSubmit = useCallback(() => {
     if (!isValid) {
@@ -188,20 +191,20 @@ export default function AddTransactionScreen() {
             bounces={false}
           >
           <Text style={[styles.title, { color: colors.textPrimary }]}>
-            Add a transaction
+            {t('addTransaction.title')}
           </Text>
 
           {/* Type toggle */}
           <View style={[styles.typeToggle, { backgroundColor: colors.backgroundSecondary }]}>
-            {(['debit', 'credit'] as TransactionType[]).map((t) => {
-              const active = type === t;
-              const activeColor = t === 'debit' ? colors.danger : colors.positive;
+            {(['debit', 'credit'] as TransactionType[]).map((txType) => {
+              const active = type === txType;
+              const activeColor = txType === 'debit' ? colors.danger : colors.positive;
               return (
                 <Pressable
-                  key={t}
+                  key={txType}
                   onPress={() => {
                     light();
-                    setType(t);
+                    setType(txType);
                   }}
                   style={[
                     styles.typeOption,
@@ -214,7 +217,7 @@ export default function AddTransactionScreen() {
                       { color: active ? '#fff' : colors.textTertiary },
                     ]}
                   >
-                    {t === 'debit' ? 'Spent' : 'Received'}
+                    {t(txType === 'debit' ? 'addTransaction.typeSpent' : 'addTransaction.typeReceived')}
                   </Text>
                 </Pressable>
               );
@@ -239,7 +242,7 @@ export default function AddTransactionScreen() {
                 value={amount}
                 onChangeText={handleAmountChange}
                 onBlur={() => setTouched(true)}
-                placeholder="0.00"
+                placeholder={t('addTransaction.amountPlaceholder')}
                 placeholderTextColor={colors.textTertiary}
                 keyboardType="decimal-pad"
                 inputMode="decimal"
@@ -264,7 +267,7 @@ export default function AddTransactionScreen() {
               value={merchant}
               onChangeText={setMerchant}
               onBlur={() => setTouched(true)}
-              placeholder="Merchant or description"
+              placeholder={t('addTransaction.merchantPlaceholder')}
               placeholderTextColor={colors.textTertiary}
               maxLength={MAX_MERCHANT_LEN}
               style={[
@@ -289,13 +292,14 @@ export default function AddTransactionScreen() {
 
           {/* Category grid */}
           <Text style={[styles.sectionLabel, { color: colors.textTertiary }]}>
-            Category
+            {t('addTransaction.categoryLabel')}
           </Text>
           <View style={styles.categoryGrid}>
             {ALL_CATEGORIES.map((cat) => (
               <CategoryChip
                 key={cat}
                 cat={cat}
+                label={t(`categories.${cat}`)}
                 active={cat === category}
                 onPress={(c) => {
                   light();
@@ -328,7 +332,7 @@ export default function AddTransactionScreen() {
                   { color: isValid ? '#fff' : colors.textTertiary },
                 ]}
               >
-                Save transaction
+                {t('addTransaction.save')}
               </Text>
             </Pressable>
             {!isValid && blockedHint && (
@@ -346,18 +350,19 @@ export default function AddTransactionScreen() {
 
 const CategoryChip = memo(function CategoryChip({
   cat,
+  label,
   active,
   onPress,
   colors,
 }: {
   cat: TransactionCategory;
+  label: string;
   active: boolean;
   onPress: (c: TransactionCategory) => void;
   colors: any;
 }) {
-  const meta = CATEGORY_META[cat];
   const catColor =
-    (colors as any)[`category${capitalize(cat)}`] ?? colors.accent;
+    (colors as any)[`category${cat.charAt(0).toUpperCase()}${cat.slice(1)}`] ?? colors.accent;
 
   return (
     <Pressable
@@ -376,7 +381,7 @@ const CategoryChip = memo(function CategoryChip({
           { color: active ? catColor : colors.textSecondary },
         ]}
       >
-        {meta.label}
+        {label}
       </Text>
     </Pressable>
   );

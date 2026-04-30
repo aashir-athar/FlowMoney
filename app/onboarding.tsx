@@ -29,62 +29,46 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LAYOUT, RADIUS, SPACING, SPRING, TYPOGRAPHY } from '../constants/design';
 import { useTheme } from '../hooks/useTheme';
 import { useHaptics } from '../hooks/useTransactions';
+import { useT } from '../i18n';
 import { useAppStore } from '../store/useAppStore';
 import { OnboardingGoal } from '../types/user';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
-const STEPS = [
-  {
-    id: 'welcome',
-    eyebrow: 'Welcome',
-    headline: 'Your money,\nclear at last.',
-    subtext:
-      'FlowMoney reads your bank alerts and turns them into a picture of your financial life. No manual entry. No spreadsheets.',
-    cta: 'Get started',
-  },
-  {
-    id: 'privacy',
-    eyebrow: 'Privacy first',
-    headline: 'Your data never\nleaves your phone.',
-    subtext:
-      'We read transaction alerts only — never personal messages. Everything is processed on-device. There is no FlowMoney server.',
-    cta: 'That works for me',
-  },
-  {
-    id: 'goal',
-    eyebrow: 'One last thing',
-    headline: 'What matters\nmost to you?',
-    subtext: 'This shapes how we show your money.',
-    cta: null,
-  },
-] as const;
+// Step shape — translation keys live in i18n; this just maps step index to
+// the key prefix and whether a CTA is shown (last step uses goal-finish).
+const STEP_KEYS = ['welcome', 'privacy', 'goal'] as const;
+const TOTAL_STEPS = STEP_KEYS.length;
 
-const GOALS: { id: OnboardingGoal; label: string; sub: string }[] = [
-  { id: 'save_money', label: 'Save more money', sub: 'Track what is holding you back' },
-  { id: 'control_spending', label: 'Control my spending', sub: 'Know where every rupee goes' },
-  { id: 'just_track', label: 'Just track for now', sub: 'Awareness without pressure' },
-];
+const GOAL_IDS: OnboardingGoal[] = ['save_money', 'control_spending', 'just_track'];
+
+// Goal id → translation-key suffix under `onboarding.goal.*`
+const GOAL_KEY: Record<OnboardingGoal, 'saveMoney' | 'controlSpending' | 'justTrack'> = {
+  save_money: 'saveMoney',
+  control_spending: 'controlSpending',
+  just_track: 'justTrack',
+};
 
 export default function Onboarding() {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { light, success } = useHaptics();
+  const { t } = useT();
   const setGoal = useAppStore((s) => s.setGoal);
   const completeOnboarding = useAppStore((s) => s.completeOnboarding);
 
   const [step, setStep] = useState(0);
   const [selectedGoal, setSelectedGoal] = useState<OnboardingGoal | null>(null);
 
-  const progressWidth = useSharedValue((1 / STEPS.length) * 100);
+  const progressWidth = useSharedValue((1 / TOTAL_STEPS) * 100);
 
   const goNext = useCallback(() => {
     light();
-    if (step < STEPS.length - 1) {
+    if (step < TOTAL_STEPS - 1) {
       const nextStep = step + 1;
       setStep(nextStep);
       progressWidth.value = withSpring(
-        ((nextStep + 1) / STEPS.length) * 100,
+        ((nextStep + 1) / TOTAL_STEPS) * 100,
         SPRING.gentle
       );
     }
@@ -106,8 +90,14 @@ export default function Onboarding() {
     router.replace('/(tabs)');
   }, [selectedGoal, setGoal, completeOnboarding, success]);
 
-  const currentStep = STEPS[step];
-  const isLastStep = step === STEPS.length - 1;
+  const stepKey = STEP_KEYS[step];
+  const isLastStep = step === TOTAL_STEPS - 1;
+  const currentStep = {
+    eyebrow: t(`onboarding.${stepKey}.eyebrow`),
+    headline: t(`onboarding.${stepKey}.headline`),
+    subtext: t(`onboarding.${stepKey}.subtext`),
+    cta: isLastStep ? null : t(`onboarding.${stepKey}.cta`),
+  };
 
   const progressAnimStyle = useAnimatedStyle(() => ({
     width: `${progressWidth.value}%`,
@@ -173,14 +163,18 @@ export default function Onboarding() {
 
         {isLastStep && (
           <View style={styles.goalsContainer}>
-            {GOALS.map((goal, i) => (
+            {GOAL_IDS.map((goalId, i) => (
               <Animated.View
-                key={goal.id}
+                key={goalId}
                 entering={FadeInDown.delay(200 + i * 80).springify().damping(20)}
               >
                 <GoalRow
-                  goal={goal}
-                  selected={selectedGoal === goal.id}
+                  goal={{
+                    id: goalId,
+                    label: t(`onboarding.goal.${GOAL_KEY[goalId]}.label`),
+                    sub: t(`onboarding.goal.${GOAL_KEY[goalId]}.sub`),
+                  }}
+                  selected={selectedGoal === goalId}
                   onPress={handleGoalSelect}
                   colors={colors}
                 />
@@ -226,7 +220,7 @@ export default function Onboarding() {
                   { color: selectedGoal ? '#fff' : colors.textTertiary },
                 ]}
               >
-                Start tracking
+                {t('onboarding.goal.finish')}
               </Text>
             </Pressable>
           </Animated.View>

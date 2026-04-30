@@ -1,14 +1,12 @@
 // app/transaction/[id].tsx
 // Transaction detail — bottom sheet with amount as hero, category edit, source.
 
-import { format } from 'date-fns';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { memo, useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  CATEGORY_META,
   RADIUS,
   SPACING,
   SPRING,
@@ -16,6 +14,7 @@ import {
 } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
 import { useHaptics } from '../../hooks/useTransactions';
+import { useT } from '../../i18n';
 import { useAppStore } from '../../store/useAppStore';
 import { TransactionCategory } from '../../types/transaction';
 import { formatCurrency } from '../../utils/analytics';
@@ -41,6 +40,7 @@ export default function TransactionDetail() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { light, success } = useHaptics();
+  const { t, locale } = useT();
 
   const transaction = useAppStore((s) => s.transactions.find((t) => t.id === id));
   const setCategoryForTransaction = useAppStore((s) => s.setCategoryForTransaction);
@@ -56,12 +56,15 @@ export default function TransactionDetail() {
   const handleDelete = useCallback(() => {
     if (!transaction || !transaction.isManual) return;
     Alert.alert(
-      'Delete transaction?',
-      `${formatCurrency(transaction.amount)} at ${transaction.merchant} will be removed. This cannot be undone.`,
+      t('transactionDetail.deleteTitle'),
+      t('transactionDetail.deleteMessage', {
+        amount: formatCurrency(transaction.amount),
+        merchant: transaction.merchant,
+      }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
             success();
@@ -71,7 +74,7 @@ export default function TransactionDetail() {
         },
       ]
     );
-  }, [transaction, deleteTransaction, success]);
+  }, [transaction, deleteTransaction, success, t]);
 
   const handleCategorySelect = useCallback(
     (cat: TransactionCategory) => {
@@ -95,14 +98,13 @@ export default function TransactionDetail() {
         <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
         <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
           <Text style={[styles.notFound, { color: colors.textSecondary }]}>
-            Transaction not found
+            {t('transactionDetail.notFound')}
           </Text>
         </View>
       </View>
     );
   }
 
-  const meta = CATEGORY_META[transaction.category] ?? CATEGORY_META.other;
   const catColor =
     (colors as any)[`category${capitalize(transaction.category)}`] ?? colors.accent;
 
@@ -133,7 +135,7 @@ export default function TransactionDetail() {
           <View style={styles.amountSection}>
             <View style={[styles.categoryBadge, { backgroundColor: catColor + '22' }]}>
               <Text style={[styles.categoryLabel, { color: catColor }]}>
-                {meta.label}
+                {t(`categories.${transaction.category}`)}
               </Text>
             </View>
             <Text
@@ -157,14 +159,23 @@ export default function TransactionDetail() {
               {transaction.merchant}
             </Text>
             <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
-              {format(new Date(transaction.timestamp), "EEEE, MMMM d 'at' h:mm a")}
+              {new Date(transaction.timestamp).toLocaleDateString(
+                locale === 'ur' ? 'ur-PK' : locale === 'hi' ? 'hi-IN' : 'en-US',
+                {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                }
+              )}
             </Text>
           </View>
 
           {/* Source */}
           <View style={[styles.sourceRow, { borderTopColor: colors.divider }]}>
             <Text style={[styles.sourceLabel, { color: colors.textTertiary }]}>
-              Source
+              {t('transactionDetail.source')}
             </Text>
             <View
               style={[
@@ -173,7 +184,9 @@ export default function TransactionDetail() {
               ]}
             >
               <Text style={[styles.sourceText, { color: colors.textSecondary }]}>
-                {transaction.source === 'sms' ? 'SMS auto-detected' : 'Manual entry'}
+                {t(transaction.source === 'sms'
+                  ? 'transactionDetail.sourceSms'
+                  : 'transactionDetail.sourceManual')}
               </Text>
             </View>
           </View>
@@ -181,13 +194,15 @@ export default function TransactionDetail() {
           {/* Actions */}
           <View style={styles.actions}>
             <ActionButton
-              label={transaction.isImportant ? 'Remove bookmark' : 'Bookmark'}
+              label={t(transaction.isImportant
+                ? 'transactionDetail.removeBookmark'
+                : 'transactionDetail.bookmark')}
               active={transaction.isImportant}
               colors={colors}
               onPress={handleToggleImportant}
             />
             <ActionButton
-              label="Change category"
+              label={t('transactionDetail.changeCategory')}
               active={editingCategory}
               colors={colors}
               onPress={() => {
@@ -200,7 +215,6 @@ export default function TransactionDetail() {
           {editingCategory && (
             <Animated.View entering={FadeIn.duration(200)} style={styles.categoryPicker}>
               {ALL_CATEGORIES.map((cat) => {
-                const catMeta = CATEGORY_META[cat];
                 const isSelected = cat === transaction.category;
                 const cc =
                   (colors as any)[`category${capitalize(cat)}`] ?? colors.accent;
@@ -224,7 +238,7 @@ export default function TransactionDetail() {
                         { color: isSelected ? cc : colors.textSecondary },
                       ]}
                     >
-                      {catMeta.label}
+                      {t(`categories.${cat}`)}
                     </Text>
                   </Pressable>
                 );
@@ -243,7 +257,7 @@ export default function TransactionDetail() {
               ]}
             >
               <Text style={[styles.rawSmsLabel, { color: colors.textTertiary }]}>
-                Original alert
+                {t('transactionDetail.originalAlert')}
               </Text>
               <Text style={[styles.rawSmsText, { color: colors.textSecondary }]}>
                 {transaction.rawSms}
@@ -267,10 +281,10 @@ export default function TransactionDetail() {
                 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Delete transaction"
+              accessibilityLabel={t('transactionDetail.deleteAccessibility')}
             >
               <Text style={[styles.deleteBtnText, { color: colors.danger }]}>
-                Delete transaction
+                {t('transactionDetail.deleteButton')}
               </Text>
             </Pressable>
           )}

@@ -57,6 +57,7 @@ interface AppState {
   completeOnboarding: () => void;
   setSmsPermission: (granted: boolean) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
+  setLanguage: (language: UserPreferences['language']) => void;
 
   // Actions — Subscriptions
   setSubscriptions: (subs: Subscription[]) => void;
@@ -87,6 +88,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   notificationsEnabled: false,
   smsPermissionGranted: false,
   theme: 'system',
+  language: 'system',
 };
 
 // Dedup a transaction by id so SMS re-reads of the same message can't double-add.
@@ -210,6 +212,12 @@ export const useAppStore = create<AppState>()(
       setNotificationsEnabled: (enabled) => {
         set((s) => ({
           preferences: { ...s.preferences, notificationsEnabled: enabled },
+        }));
+      },
+
+      setLanguage: (language) => {
+        set((s) => ({
+          preferences: { ...s.preferences, language },
         }));
       },
 

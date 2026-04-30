@@ -18,7 +18,6 @@ import { CategoryBar } from '../../components/charts/CategoryBar';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import {
-  CATEGORY_META,
   LAYOUT,
   RADIUS,
   SPACING,
@@ -26,6 +25,7 @@ import {
 } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
 import { useTransactions } from '../../hooks/useTransactions';
+import { useT } from '../../i18n';
 import { useAppStore } from '../../store/useAppStore';
 import { Subscription } from '../../types/subscription';
 import { formatCurrency, getTrendLabel } from '../../utils/analytics';
@@ -37,6 +37,7 @@ function capitalize(s: string): string {
 export default function InsightsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { t } = useT();
   const insights = useAppStore((s) => s.insights);
   const subscriptions = useAppStore((s) => s.subscriptions);
   const transactions = useAppStore((s) => s.transactions);
@@ -70,9 +71,9 @@ export default function InsightsScreen() {
       >
         {/* Header */}
         <Animated.View entering={FadeIn} style={styles.header}>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>Insights</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>{t('insights.title')}</Text>
           <Text style={[styles.subtitle, { color: colors.textTertiary }]}>
-            What your spending reveals
+            {t('insights.subtitle')}
           </Text>
         </Animated.View>
 
@@ -88,15 +89,15 @@ export default function InsightsScreen() {
           </View>
         ) : transactions.length === 0 ? (
           <EmptyState
-            title="No insights yet"
-            description="As your transactions come in, FlowMoney will start surfacing patterns and unused subscriptions here."
+            title={t('insights.emptyNoInsights.title')}
+            description={t('insights.emptyNoInsights.description')}
           />
         ) : (
           <>
         {/* Hero — total this month */}
         <Animated.View entering={FadeInDown.delay(50).springify().damping(20)}>
           <Text style={[styles.heroLabel, { color: colors.textTertiary }]}>
-            This month
+            {t('insights.heroLabel')}
           </Text>
           <Text
             style={[styles.heroAmount, { color: colors.textPrimary }]}
@@ -111,7 +112,7 @@ export default function InsightsScreen() {
                 { color: trendingDown ? colors.positive : colors.warning },
               ]}
             >
-              {getTrendLabel(monthlyChange)} vs last month
+              {t('insights.monthlyChange', { change: getTrendLabel(monthlyChange) })}
             </Text>
           )}
         </Animated.View>
@@ -119,7 +120,7 @@ export default function InsightsScreen() {
         {/* Category breakdown */}
         {summary && summary.categoryBreakdown.length > 0 && (
           <Animated.View entering={FadeInDown.delay(120).springify().damping(20)}>
-            <SectionLabel title="Where it goes" colors={colors} />
+            <SectionLabel title={t('insights.sectionWhereItGoes')} colors={colors} />
             <View
               style={[
                 styles.card,
@@ -128,14 +129,13 @@ export default function InsightsScreen() {
             >
               <View style={styles.categoryList}>
                 {summary.categoryBreakdown.slice(0, 6).map((cat, i) => {
-                  const meta = CATEGORY_META[cat.category] ?? CATEGORY_META.other;
                   const catColor =
                     (colors as any)[`category${capitalize(cat.category)}`] ??
                     colors.accent;
                   return (
                     <CategoryBar
                       key={cat.category}
-                      label={meta.label}
+                      label={t(`categories.${cat.category}`)}
                       amount={cat.total}
                       percentage={cat.percentage}
                       color={catColor}
@@ -151,7 +151,7 @@ export default function InsightsScreen() {
 
         {/* Subscriptions */}
         <Animated.View entering={FadeInDown.delay(200).springify().damping(20)}>
-          <SectionLabel title="Subscriptions" colors={colors} />
+          <SectionLabel title={t('insights.sectionSubscriptions')} colors={colors} />
           <View
             style={[
               styles.card,
@@ -164,12 +164,12 @@ export default function InsightsScreen() {
                   {formatCurrency(totalSubscriptionCost)}
                   <Text style={[styles.subPeriod, { color: colors.textTertiary }]}>
                     {' '}
-                    /month
+                    {t('common.monthSuffix')}
                   </Text>
                 </Text>
                 {unusedCount > 0 && (
                   <Text style={[styles.subWarning, { color: colors.warning }]}>
-                    {unusedCount} sitting unused
+                    {t('insights.subUnused', { count: unusedCount })}
                   </Text>
                 )}
               </View>
@@ -188,6 +188,7 @@ export default function InsightsScreen() {
                 sub={sub}
                 isLast={i === subscriptions.length - 1}
                 colors={colors}
+                statusLabel={t(sub.recentlyUsed ? 'insights.subActive' : 'insights.subNotUsed')}
               />
             ))}
           </View>
@@ -196,7 +197,7 @@ export default function InsightsScreen() {
         {/* Pattern cards */}
         {insights.length > 0 && (
           <Animated.View entering={FadeInDown.delay(280).springify().damping(20)}>
-            <SectionLabel title="Patterns" colors={colors} />
+            <SectionLabel title={t('insights.sectionPatterns')} colors={colors} />
             {insights.map((insight) => (
               <InsightCard key={insight.id} insight={insight} />
             ))}
@@ -206,15 +207,15 @@ export default function InsightsScreen() {
         {/* Quick stats */}
         {summary && (
           <Animated.View entering={FadeInDown.delay(340).springify().damping(20)}>
-            <SectionLabel title="Quick stats" colors={colors} />
+            <SectionLabel title={t('insights.sectionQuickStats')} colors={colors} />
             <View style={styles.statsGrid}>
               <StatCard
-                label="Daily average"
+                label={t('insights.statDailyAverage')}
                 value={formatCurrency(summary.dailyAverageThisMonth)}
                 colors={colors}
               />
               <StatCard
-                label="vs last month"
+                label={t('insights.statVsLastMonth')}
                 value={`${monthlyChange > 0 ? '+' : ''}${monthlyChange.toFixed(0)}%`}
                 valueColor={trendingDown ? colors.positive : colors.warning}
                 colors={colors}
@@ -250,10 +251,12 @@ const SubscriptionRow = memo(function SubscriptionRow({
   sub,
   isLast,
   colors,
+  statusLabel,
 }: {
   sub: Subscription;
   isLast: boolean;
   colors: any;
+  statusLabel: string;
 }) {
   return (
     <View
@@ -292,7 +295,7 @@ const SubscriptionRow = memo(function SubscriptionRow({
             { color: sub.recentlyUsed ? colors.textTertiary : colors.warning },
           ]}
         >
-          {sub.recentlyUsed ? 'Active' : 'Not used recently'}
+          {statusLabel}
         </Text>
       </View>
       <Text style={[styles.subAmount, { color: colors.textPrimary }]}>

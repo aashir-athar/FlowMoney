@@ -4,6 +4,7 @@
 node_modules/
 
 # Expo
+.vcscode/
 .expo/
 dist/
 web-build/

@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SmsPermissionSheet } from '../../components/ui/SmsPermissionSheet';
 import { LAYOUT, RADIUS, SPACING, TYPOGRAPHY } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
+import { LanguagePreference, useT } from '../../i18n';
 import {
   checkSmsPermission,
   isSmsReadingSupported,
@@ -25,27 +26,31 @@ import {
 import { useAppStore } from '../../store/useAppStore';
 import { formatCurrency } from '../../utils/analytics';
 
-function goalLabel(goal: string | null): string {
+// Resolve a goal id to its translated label via the i18n key suffix.
+function goalLabelKey(goal: string | null): string {
   switch (goal) {
     case 'save_money':
-      return 'Save more money';
+      return 'profile.goalSaveMoney';
     case 'control_spending':
-      return 'Control my spending';
+      return 'profile.goalControlSpending';
     case 'just_track':
-      return 'Just tracking for now';
+      return 'profile.goalJustTrack';
     default:
-      return 'Not set';
+      return 'profile.goalNotSet';
   }
 }
 
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { t } = useT();
   const preferences = useAppStore((s) => s.preferences);
   const setNotificationsEnabled = useAppStore((s) => s.setNotificationsEnabled);
   const setSmsPermission = useAppStore((s) => s.setSmsPermission);
+  const setLanguage = useAppStore((s) => s.setLanguage);
   const addTransactions = useAppStore((s) => s.addTransactions);
   const summary = useAppStore((s) => s.summary);
+  const [showLanguagePicker, setShowLanguagePicker] = useState(false);
 
   // Two-stage flow:
   //   1. Tap on the row → open the explainer sheet (SmsPermissionSheet).
@@ -58,8 +63,8 @@ export default function ProfileScreen() {
   const handleSmsPress = useCallback(async () => {
     if (!isSmsReadingSupported()) {
       Alert.alert(
-        'Android only',
-        'SMS-based tracking is only available on Android.'
+        t('profile.androidOnlyTitle'),
+        t('profile.androidOnlyMessage')
       );
       return;
     }
@@ -75,7 +80,15 @@ export default function ProfileScreen() {
       // sheet flow and flip `previouslyDenied` if it comes back denied.
     }
     setShowSheet(true);
-  }, [preferences.smsPermissionGranted]);
+  }, [preferences.smsPermissionGranted, t]);
+
+  const handleLanguageSelect = useCallback(
+    (next: LanguagePreference) => {
+      setLanguage(next);
+      setShowLanguagePicker(false);
+    },
+    [setLanguage]
+  );
 
   const handleConfirmRequest = useCallback(async () => {
     setShowSheet(false);
@@ -105,7 +118,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Animated.View entering={FadeInDown}>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>Profile</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>{t('profile.title')}</Text>
         </Animated.View>
 
         {/* Goal card */}
@@ -117,31 +130,31 @@ export default function ProfileScreen() {
           ]}
         >
           <Text style={[styles.cardLabel, { color: colors.textTertiary }]}>
-            Your goal
+            {t('profile.yourGoal')}
           </Text>
           <Text style={[styles.goalText, { color: colors.textPrimary }]}>
-            {goalLabel(preferences.goal)}
+            {t(goalLabelKey(preferences.goal))}
           </Text>
         </Animated.View>
 
         {/* Stats */}
         <Animated.View entering={FadeInDown.delay(120).springify().damping(20)}>
-          <SectionLabel title="Stats" colors={colors} />
+          <SectionLabel title={t('profile.sectionStats')} colors={colors} />
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <StatRow
-              label="Spent this month"
+              label={t('profile.spentThisMonth')}
               value={formatCurrency(summary?.thisMonth ?? 0)}
               colors={colors}
             />
             <Divider colors={colors} />
             <StatRow
-              label="Daily average"
+              label={t('profile.dailyAverage')}
               value={formatCurrency(summary?.dailyAverageThisMonth ?? 0)}
               colors={colors}
             />
             <Divider colors={colors} />
             <StatRow
-              label="vs last month"
+              label={t('profile.vsLastMonth')}
               value={`${(summary?.monthlyChange ?? 0) > 0 ? '+' : ''}${(
                 summary?.monthlyChange ?? 0
               ).toFixed(0)}%`}
@@ -155,15 +168,15 @@ export default function ProfileScreen() {
 
         {/* Settings */}
         <Animated.View entering={FadeInDown.delay(180).springify().damping(20)}>
-          <SectionLabel title="Settings" colors={colors} />
+          <SectionLabel title={t('profile.sectionSettings')} colors={colors} />
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.settingRow}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>
-                  Notifications
+                  {t('profile.notifications')}
                 </Text>
                 <Text style={[styles.settingHint, { color: colors.textTertiary }]}>
-                  Alert me when a transaction is detected
+                  {t('profile.notificationsHint')}
                 </Text>
               </View>
               <Switch
@@ -185,7 +198,7 @@ export default function ProfileScreen() {
               ]}
             >
               <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>
-                SMS Reading
+                {t('profile.smsReading')}
               </Text>
               <View
                 style={[
@@ -207,14 +220,67 @@ export default function ProfileScreen() {
                     },
                   ]}
                 >
-                  {preferences.smsPermissionGranted ? 'Active' : 'Tap to enable'}
+                  {t(preferences.smsPermissionGranted ? 'profile.smsActive' : 'profile.smsTapToEnable')}
                 </Text>
               </View>
             </Pressable>
             <Divider colors={colors} />
+            <Pressable
+              onPress={() => setShowLanguagePicker((v) => !v)}
+              style={({ pressed }) => [
+                styles.settingRow,
+                { opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>
+                {t('profile.language')}
+              </Text>
+              <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
+                {preferences.language === 'system'
+                  ? t('language.systemDefault')
+                  : t(`language.${preferences.language}`)}
+              </Text>
+            </Pressable>
+            {showLanguagePicker && (
+              <View style={styles.languageOptions}>
+                {(['system', 'en', 'ur', 'hi'] as LanguagePreference[]).map((lang) => {
+                  const isSelected = preferences.language === lang;
+                  return (
+                    <Pressable
+                      key={lang}
+                      onPress={() => handleLanguageSelect(lang)}
+                      style={({ pressed }) => [
+                        styles.languageOption,
+                        {
+                          backgroundColor: isSelected
+                            ? colors.accentSubtle
+                            : colors.backgroundSecondary,
+                          borderColor: isSelected ? colors.accent : 'transparent',
+                          opacity: pressed ? 0.85 : 1,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.languageOptionText,
+                          {
+                            color: isSelected ? colors.accent : colors.textSecondary,
+                          },
+                        ]}
+                      >
+                        {lang === 'system'
+                          ? t('language.systemDefault')
+                          : t(`language.${lang}`)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+            <Divider colors={colors} />
             <View style={styles.settingRow}>
               <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>
-                Currency
+                {t('profile.currency')}
               </Text>
               <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
                 Rs. (PKR)
@@ -235,16 +301,15 @@ export default function ProfileScreen() {
           ]}
         >
           <Text style={[styles.privacyTitle, { color: colors.positive }]}>
-            On-device only
+            {t('profile.privacyTitle')}
           </Text>
           <Text style={[styles.privacyText, { color: colors.textSecondary }]}>
-            Your transactions never leave this phone. SMS messages are parsed locally.
-            FlowMoney does not run a server.
+            {t('profile.privacyText')}
           </Text>
         </Animated.View>
 
         <Text style={[styles.version, { color: colors.textTertiary }]}>
-          FlowMoney 1.0.0
+          {t('profile.version', { version: '1.0.0' })}
         </Text>
       </ScrollView>
 
@@ -349,6 +414,18 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.full,
   },
   badgeText: { ...TYPOGRAPHY.labelS },
+  languageOptions: {
+    gap: SPACING.xs,
+  },
+  languageOption: {
+    paddingHorizontal: SPACING.m,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.m,
+    borderWidth: 1.5,
+  },
+  languageOptionText: {
+    ...TYPOGRAPHY.labelL,
+  },
   privacyNote: {
     borderRadius: RADIUS.xl,
     borderWidth: StyleSheet.hairlineWidth,

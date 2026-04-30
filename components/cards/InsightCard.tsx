@@ -16,7 +16,7 @@
 // SubscriptionAlert.
 
 import { Feather } from '@expo/vector-icons';
-import React, { memo, useCallback } from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -26,6 +26,8 @@ import Animated, {
 import { RADIUS, SPACING, SPRING, TYPOGRAPHY } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
 import { useHaptics } from '../../hooks/useTransactions';
+import { useT } from '../../i18n';
+import { decodeTailToken } from '../../services/insightEngine';
 import { useAppStore } from '../../store/useAppStore';
 import { Insight, InsightSeverity } from '../../types/insight';
 
@@ -50,7 +52,13 @@ interface SeverityStyle {
   label: string;
 }
 
-function severityStyle(severity: InsightSeverity, colors: any): SeverityStyle {
+// Severity → visual treatment + i18n key for the eyebrow label.
+// The label is intentionally not translated here; consumers call t() with
+// the returned `labelKey`.
+function severityStyle(
+  severity: InsightSeverity,
+  colors: any
+): SeverityStyle & { labelKey: string } {
   switch (severity) {
     case 'positive':
       return {
@@ -58,7 +66,8 @@ function severityStyle(severity: InsightSeverity, colors: any): SeverityStyle {
         background: colors.positiveSubtle,
         border: colors.positive + '33',
         icon: 'trending-up',
-        label: 'Good news',
+        label: '',
+        labelKey: 'insightCard.label.positive',
       };
     case 'warning':
       return {
@@ -66,7 +75,8 @@ function severityStyle(severity: InsightSeverity, colors: any): SeverityStyle {
         background: colors.warningSubtle,
         border: colors.warning + '33',
         icon: 'alert-triangle',
-        label: 'Heads up',
+        label: '',
+        labelKey: 'insightCard.label.warning',
       };
     case 'alert':
       return {
@@ -74,7 +84,8 @@ function severityStyle(severity: InsightSeverity, colors: any): SeverityStyle {
         background: colors.dangerSubtle,
         border: colors.danger + '40',
         icon: 'alert-octagon',
-        label: 'Take a look',
+        label: '',
+        labelKey: 'insightCard.label.alert',
       };
     default:
       return {
@@ -82,7 +93,8 @@ function severityStyle(severity: InsightSeverity, colors: any): SeverityStyle {
         background: colors.accentSubtle,
         border: colors.accent + '2A',
         icon: 'activity',
-        label: 'Pattern',
+        label: '',
+        labelKey: 'insightCard.label.neutral',
       };
   }
 }
@@ -91,8 +103,58 @@ export const InsightCard = memo(function InsightCard({ insight }: InsightCardPro
   const colors = useColors();
   const markRead = useAppStore((s) => s.markInsightRead);
   const { light } = useHaptics();
+  const { t, locale } = useT();
 
   const sev = severityStyle(insight.severity, colors);
+
+  // Resolve the title and description through i18n at render time. The
+  // engine produced kind+params; we look up the active locale's template
+  // and interpolate. Tail tokens (e.g. lateNight's "Most of it lands in X")
+  // are decoded into a sub-translation so they translate alongside the
+  // parent description instead of staying frozen.
+  const { title, description } = useMemo(() => {
+    const baseKey = `insightEngine.${insight.kind}`;
+
+    // Build per-kind params, materialising any tail tokens first.
+    const params: Record<string, string | number> = { ...insight.params };
+    for (const [k, v] of Object.entries(params)) {
+      if (typeof v === 'string') {
+        const decoded = decodeTailToken(v);
+        if (decoded) {
+          // Tail keys live next to the main entry: `<kind>.tail`.
+          // Translate the same category/runner-up via `categories.*`.
+          const tailParams = { ...decoded };
+          if (typeof tailParams.category === 'string') {
+            tailParams.category = t(`categories.${tailParams.category}`);
+          }
+          if (typeof tailParams.runnerUp === 'string') {
+            tailParams.runnerUp = t(`categories.${tailParams.runnerUp}`);
+          }
+          params[k] = t(`insightEngine.${decoded.kind}.tail`, tailParams);
+        }
+      }
+    }
+
+    // Translate any first-level category-token params (topCategory.category,
+    // biggestThisWeek.day timestamp, etc.).
+    if (typeof params.category === 'string') {
+      params.category = t(`categories.${params.category}`);
+    }
+    if (typeof params.day === 'number') {
+      params.day = new Date(params.day).toLocaleDateString(
+        // Pin to the active locale so weekday names match the rest of the UI.
+        locale === 'ur' ? 'ur-PK' : locale === 'hi' ? 'hi-IN' : 'en-US',
+        { weekday: 'long' }
+      );
+    }
+
+    return {
+      title: t(`${baseKey}.title`, params),
+      description: t(`${baseKey}.description`, params),
+    };
+  }, [insight.kind, insight.params, t, locale]);
+
+  const eyebrowLabel = t(sev.labelKey);
 
   // Per-card press scale via Reanimated — runs on the UI thread, no JS bridge.
   const scale = useSharedValue(1);
@@ -111,9 +173,6 @@ export const InsightCard = memo(function InsightCard({ insight }: InsightCardPro
     if (!insight.isRead) markRead(insight.id);
   }, [light, markRead, insight.id, insight.isRead]);
 
-  // Neutral severity stays on the regular surface; the tinted wash is
-  // reserved for opinionated cards (positive/warning/alert) so the eye
-  // can sort signal from texture at a glance.
   const isOpinionated = insight.severity !== 'neutral';
   const cardBackground = isOpinionated ? sev.background : colors.surface;
   const cardBorder = isOpinionated ? sev.border : colors.border;
@@ -132,9 +191,8 @@ export const InsightCard = memo(function InsightCard({ insight }: InsightCardPro
           },
         ]}
         accessibilityRole="button"
-        accessibilityLabel={`${sev.label}. ${insight.title}`}
+        accessibilityLabel={`${eyebrowLabel}. ${title}`}
       >
-        {/* Eyebrow row: severity chip + unread dot */}
         <View style={styles.eyebrowRow}>
           <View
             style={[
@@ -149,7 +207,7 @@ export const InsightCard = memo(function InsightCard({ insight }: InsightCardPro
           >
             <Feather name={sev.icon} size={11} color={sev.color} />
             <Text style={[styles.eyebrowLabel, { color: sev.color }]}>
-              {sev.label.toUpperCase()}
+              {eyebrowLabel.toUpperCase()}
             </Text>
           </View>
           {!insight.isRead && (
@@ -161,13 +219,13 @@ export const InsightCard = memo(function InsightCard({ insight }: InsightCardPro
           style={[styles.title, { color: colors.textPrimary }]}
           numberOfLines={2}
         >
-          {insight.title}
+          {title}
         </Text>
         <Text
           style={[styles.description, { color: colors.textSecondary }]}
           numberOfLines={4}
         >
-          {insight.description}
+          {description}
         </Text>
       </Pressable>
     </Animated.View>

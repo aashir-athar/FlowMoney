@@ -30,7 +30,6 @@ import { TransactionRow } from '../../components/cards/TransactionRow';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { TransactionRowSkeleton } from '../../components/ui/Skeleton';
 import {
-  CATEGORY_META,
   LAYOUT,
   RADIUS,
   SPACING,
@@ -38,6 +37,7 @@ import {
 } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
 import { useHaptics, useTransactions } from '../../hooks/useTransactions';
+import { useT } from '../../i18n';
 import { useAppStore } from '../../store/useAppStore';
 import { Transaction, TransactionCategory } from '../../types/transaction';
 import { formatCurrency } from '../../utils/analytics';
@@ -53,10 +53,23 @@ const CATEGORIES: (TransactionCategory | 'all')[] = [
   'other',
 ];
 
-function formatSectionTitle(date: Date): string {
-  if (isToday(date)) return 'Today';
-  if (isYesterday(date)) return 'Yesterday';
-  return format(date, 'EEEE, MMMM d');
+// Section header for the per-day group. Uses translation keys for the
+// special-case "Today" / "Yesterday" labels and falls back to the active
+// locale's date formatter for everything else, so Urdu/Hindi headers
+// don't render in English.
+function formatSectionTitle(
+  date: Date,
+  t: (key: string) => string,
+  locale: 'en' | 'ur' | 'hi'
+): string {
+  if (isToday(date)) return t('common.today');
+  if (isYesterday(date)) return t('common.yesterday');
+  const tag = locale === 'ur' ? 'ur-PK' : locale === 'hi' ? 'hi-IN' : 'en-US';
+  return date.toLocaleDateString(tag, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
 }
 
 interface Section {
@@ -71,6 +84,7 @@ export default function FeedScreen() {
   const { light } = useHaptics();
   const { recent } = useTransactions();
   const hasHydrated = useAppStore((s) => s.hasHydrated);
+  const { t, locale } = useT();
 
   const [activeFilter, setActiveFilter] = useState<TransactionCategory | 'all'>('all');
 
@@ -91,11 +105,11 @@ export default function FeedScreen() {
     return Object.entries(groups)
       .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
       .map(([dateKey, data]) => ({
-        title: formatSectionTitle(new Date(dateKey)),
-        total: data.filter((t) => t.type === 'debit').reduce((s, t) => s + t.amount, 0),
+        title: formatSectionTitle(new Date(dateKey), t, locale),
+        total: data.filter((tx) => tx.type === 'debit').reduce((s, tx) => s + tx.amount, 0),
         data,
       }));
-  }, [filtered]);
+  }, [filtered, t, locale]);
 
   const handleFilterSelect = useCallback(
     (cat: TransactionCategory | 'all') => {
@@ -142,10 +156,10 @@ export default function FeedScreen() {
         style={[styles.header, { paddingTop: insets.top + SPACING.s }]}
       >
         <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
-          Transactions
+          {t('feed.title')}
         </Text>
         <Text style={[styles.countLabel, { color: colors.textTertiary }]}>
-          {recent.length} this month
+          {t('feed.countThisMonth', { count: recent.length })}
         </Text>
       </Animated.View>
 
@@ -160,6 +174,7 @@ export default function FeedScreen() {
             <FilterChip
               key={cat}
               cat={cat}
+              label={cat === 'all' ? t('feed.filters.all') : t(`categories.${cat}`)}
               active={cat === activeFilter}
               onPress={handleFilterSelect}
               colors={colors}
@@ -217,12 +232,14 @@ export default function FeedScreen() {
           windowSize={9}
           ListEmptyComponent={
             <EmptyState
-              title={activeFilter === 'all' ? 'No transactions yet' : 'Nothing in this category'}
-              description={
+              title={t(
+                activeFilter === 'all' ? 'feed.emptyAll.title' : 'feed.emptyFiltered.title'
+              )}
+              description={t(
                 activeFilter === 'all'
-                  ? 'Once a bank alert arrives or you add one manually, it will appear here.'
-                  : 'Try a different filter, or add a transaction in this category from Home.'
-              }
+                  ? 'feed.emptyAll.description'
+                  : 'feed.emptyFiltered.description'
+              )}
             />
           }
         />
@@ -239,17 +256,18 @@ const SectionGap = memo(function SectionGap() {
 
 const FilterChip = memo(function FilterChip({
   cat,
+  label,
   active,
   onPress,
   colors,
 }: {
   cat: TransactionCategory | 'all';
+  label: string;
   active: boolean;
   onPress: (c: TransactionCategory | 'all') => void;
   colors: any;
 }) {
   const handle = useCallback(() => onPress(cat), [cat, onPress]);
-  const label = cat === 'all' ? 'All' : CATEGORY_META[cat]?.label ?? cat;
 
   return (
     <Pressable

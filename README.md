@@ -45,6 +45,7 @@ It is built specifically for the Pakistani market — HBL, UBL, MCB, Meezan, Eas
 ## Highlights
 
 - **Always-on SMS auto-ingest** powered by [`expo-transaction-sms-reader`](https://www.npmjs.com/package/expo-transaction-sms-reader). The listener is owned by the root layout and runs the entire time the app is alive — every incoming bank alert becomes a transaction without the user lifting a finger.
+- **Background reconciliation via `expo-background-fetch`** — when the OS wakes the JS engine (~15 min on Android, OS-discretionary on iOS), the task reads any SMS that arrived since the last sync and adds them to the store. Foreground reconcile fires on every launch too, so an app that was force-quit yesterday catches up the moment it reopens.
 - **Lazy native module loading** — the SMS reader is `require`'d inside a try/catch so the app still boots in Expo Go, on iOS, and on web. SMS features no-op on those targets via `isSmsReadingSupported()`; everything else (Home, Feed, Insights, Chat) keeps working.
 - **In-app SMS permission flow** — a `SmsPermissionSheet` explains exactly what we read (bank alerts) and what we don't (everything else) before the OS prompt fires. On a "don't ask again" denial, the sheet re-opens with an "Open Settings" CTA instead of silently failing.
 - **Local notifications on every detected transaction** via `expo-notifications`. The user opts in once and gets an instant "Rs. 850 at Foodpanda" notification the moment the bank's SMS arrives.
@@ -53,6 +54,7 @@ It is built specifically for the Pakistani market — HBL, UBL, MCB, Meezan, Eas
 - **Groq-powered Money Assistant** — `llama-3.3-70b-versatile` chat completions grounded in the user's real spending summary. Client-side rate limiter keeps free-tier usage healthy. Surfaced via a floating "Ask" FAB available across Home, Feed, and Insights — not buried in a header pill.
 - **Data-grounded behavioural intelligence** — subscription detector, insight engine, category breakdown re-derived as new transactions arrive. Every insight description ties back to actual transactions (no fabricated peer comparisons, no hardcoded "Foodpanda" patterns).
 - **Compact k/M/B number formatting** everywhere — `1k`, `12.5k`, `1M`, `2.3B`. One source of truth in `utils/analytics.ts#formatCurrency`; trailing-zero stripping built in.
+- **Trilingual** — English, Urdu (RTL), and Hindi via `i18n-js` + `expo-localization`. Every screen, insight, and notification flows through translation keys; insights are stored as `kind + params` so they re-translate when the user switches language. Picker lives in **Profile → Language**.
 - **2026 floating pill tab bar** — Liquid Glass on iOS 26+ via `expo-glass-effect`; solid material density on Android. UI-thread sliding accent pill, Feather icons via `@expo/vector-icons`.
 - **Privacy-first** — there is no FlowMoney server. Everything is local. The Groq call carries a financial summary, never raw transactions.
 - **60fps on 2GB-RAM Android** — every leaf component is `React.memo`'d, every list-item renderer is `useCallback`'d, motion runs on the UI thread.
@@ -207,8 +209,16 @@ FlowMoney/
 ├── store/
 │   └── useAppStore.ts           # Zustand store (persisted via AsyncStorage)
 │
+├── i18n/                        # Translations (source of truth)
+│   ├── index.ts                 # i18n-js singleton + useT() hook + RTL handling
+│   └── locales/
+│       ├── en.ts                # English (canonical Translations type)
+│       ├── ur.ts                # Urdu (RTL)
+│       └── hi.ts                # Hindi
+│
 ├── services/                    # Side-effects, isolated and typed
 │   ├── smsReader.ts             # expo-transaction-sms-reader adapter
+│   ├── backgroundSync.ts        # expo-background-fetch reconciliation task
 │   ├── smsParser.ts             # PKR-bank regex fallback parser
 │   ├── categoryEngine.ts        # Merchant → category classifier
 │   ├── subscriptionDetector.ts  # Recurring-charge detector

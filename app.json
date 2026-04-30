@@ -45,7 +45,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-transaction-sms-reader"
+      "expo-transaction-sms-reader",
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,

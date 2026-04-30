@@ -3,38 +3,40 @@
 //
 // Every insight here must be data-grounded:
 //   - The numbers in the description come from the user's actual transactions.
-//   - No fabricated peer comparisons, no editorialized causes ("delivery fees"
+//   - No fabricated peer comparisons, no editorialised causes ("delivery fees"
 //     when we only see a debit), no merchant-specific hardcoding.
 //   - Patterns are gated on having enough data to be meaningful — a user
 //     with five transactions should not see a "Spending up 80%" alert just
 //     because last week happened to be one purchase.
 //
-// Adding a new pattern: write a small function that returns an
-// InsightTemplate or null, then push the result into `insights` below.
-// Keep the description literal — only state what the data shows.
+// Why we emit kind+params instead of pre-formatted strings:
+//   The previous version stored fully-rendered English titles/descriptions.
+//   Switching the app to Urdu or Hindi would have left those frozen-in-time
+//   strings unchanged. Now the engine emits structured payloads — the
+//   InsightCard renders them via i18n keys (`insightEngine.<kind>.title` /
+//   `.description`), so flipping language re-renders everything correctly.
+//
+// Adding a new pattern: add an InsightKind in types/insight.ts, define the
+// corresponding `insightEngine.<kind>.title` / `.description` strings in
+// every locale, then push a payload here.
 //
 // All currency formatting goes through formatCurrency so the global
 // k/M/B scheme stays consistent.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Transaction, SpendingSummary, TransactionCategory } from '../types/transaction';
-import { Insight, InsightSeverity } from '../types/insight';
+import { Insight, InsightKind, InsightSeverity } from '../types/insight';
+import { SpendingSummary, Transaction, TransactionCategory } from '../types/transaction';
 import { formatCurrency, getDailySpendForChart } from '../utils/analytics';
 
-type InsightTemplate = {
-  title: string;
-  description: string;
+interface InsightTemplate {
+  kind: InsightKind;
+  params: Record<string, string | number>;
   severity: InsightSeverity;
   category?: string;
-};
+}
 
-// Floors that gate per-insight visibility, not the whole screen. The previous
-// global gate at 8 transactions / 14 days was hiding everything for new users
-// — better to show the patterns that ARE statistically grounded (frequent
-// merchant, biggest spend, category dominance) and only hide the ones that
-// genuinely need a longer history (week-over-week, month-over-month, baseline
-// acceleration).
+// Minimums below which we don't surface generated patterns.
 const MIN_TRANSACTIONS_FOR_ANY_INSIGHT = 3;
 const MIN_DAYS_OF_DATA_FOR_TRENDS = 10;
 const DAY_MS = 86_400_000;
@@ -50,67 +52,68 @@ export function generateInsights(
   const now = Date.now();
   const debits = transactions.filter((t) => t.type === 'debit');
 
-  // Don't surface anything until there are at least a few data points.
-  // Below this, even "biggest spend this week" is just "the only spend".
   if (debits.length < MIN_TRANSACTIONS_FOR_ANY_INSIGHT) {
     return [];
   }
 
-  const earliest = debits.length > 0 ? Math.min(...debits.map((t) => t.timestamp)) : now;
+  const earliest =
+    debits.length > 0 ? Math.min(...debits.map((t) => t.timestamp)) : now;
   const daysOfData = Math.floor((now - earliest) / DAY_MS);
-  // Trend insights (week-over-week, month-over-month, acceleration) need a
-  // genuine history baseline. Single-snapshot insights (top category, biggest
-  // spend, frequent merchant) don't and should appear from day 1.
   const hasTrendHistory = daysOfData >= MIN_DAYS_OF_DATA_FOR_TRENDS;
 
   const insights: InsightTemplate[] = [];
 
   // ── 1. Weekly change ────────────────────────────────────────────────
-  // Requires a real "last week" baseline (summary.weeklyChange is 0 when
-  // lastWeek is empty, so the threshold checks already filter that out).
   if (hasTrendHistory && summary.weeklyChange > 20) {
     insights.push({
-      title: `Spending up ${summary.weeklyChange.toFixed(0)}% this week`,
-      description: `You're tracking at ${formatCurrency(
-        summary.thisWeek / 7
-      )} per day, ahead of last week's pace at the same point.`,
+      kind: 'weeklyUp',
+      params: {
+        change: summary.weeklyChange.toFixed(0),
+        daily: formatCurrency(summary.thisWeek / 7),
+      },
       severity: 'warning',
     });
   } else if (hasTrendHistory && summary.weeklyChange < -15) {
     insights.push({
-      title: 'You are doing better this week',
-      description: `Your spending is ${Math.abs(
-        summary.weeklyChange
-      ).toFixed(0)}% lower than last week so far. Keep this up.`,
+      kind: 'weeklyDown',
+      params: { change: Math.abs(summary.weeklyChange).toFixed(0) },
       severity: 'positive',
     });
   }
 
   // ── 2. Category dominance ──────────────────────────────────────────
-  // Drops the prior "higher than most people in your range" — that was a
-  // fabricated peer comparison. Now grounds the description in the runner-up
-  // category, which actually exists in the data.
   const top = summary.categoryBreakdown[0];
   const runnerUp = summary.categoryBreakdown[1];
   if (top && top.percentage > 35) {
     const ratio = runnerUp ? top.total / Math.max(runnerUp.total, 1) : null;
-    const tail =
-      runnerUp && ratio
-        ? ` That's ${ratio.toFixed(1)}× your next category, ${runnerUp.category} (${formatCurrency(runnerUp.total)}).`
-        : '';
     insights.push({
-      title: `${capitalize(top.category)} is your biggest expense`,
-      description: `${capitalize(top.category)} is ${top.percentage.toFixed(
-        0
-      )}% of this month — ${formatCurrency(top.total)}.${tail}`,
+      kind: 'topCategory',
+      params: {
+        category: top.category,
+        percent: top.percentage.toFixed(0),
+        total: formatCurrency(top.total),
+        // The card concatenates `tail` after `description`. When there's
+        // no runner-up, `tail` is empty so the rendered sentence ends
+        // cleanly at the period.
+        tail:
+          runnerUp && ratio
+            ? renderTailToken({
+                kind: 'topCategory',
+                ratio: ratio.toFixed(1),
+                runnerUp: runnerUp.category,
+                runnerUpTotal: formatCurrency(runnerUp.total),
+              })
+            : '',
+        ratio: ratio ? ratio.toFixed(1) : '',
+        runnerUp: runnerUp?.category ?? '',
+        runnerUpTotal: runnerUp ? formatCurrency(runnerUp.total) : '',
+      },
       severity: top.percentage > 50 ? 'alert' : 'warning',
       category: top.category,
     });
   }
 
   // ── 3. Weekend pattern ─────────────────────────────────────────────
-  // Require at least one full weekend day AND meaningful weekday activity
-  // before claiming a weekend pattern.
   const weekend = summarizeRange(debits, now - 7 * DAY_MS, now, isWeekend);
   const weekday = summarizeRange(debits, now - 7 * DAY_MS, now, isWeekday);
   if (weekend.dayCount >= 1 && weekday.dayCount >= 3 && weekday.daily > 0) {
@@ -118,103 +121,99 @@ export function generateInsights(
     const ratio = weekendDaily / weekday.daily;
     if (ratio > 1.5) {
       insights.push({
-        title: 'Your weekends cost more',
-        description: `Weekend days run ${((ratio - 1) * 100).toFixed(
-          0
-        )}% above weekdays. Last weekend totaled ${formatCurrency(weekend.total)}.`,
+        kind: 'weekend',
+        params: {
+          percent: ((ratio - 1) * 100).toFixed(0),
+          total: formatCurrency(weekend.total),
+        },
         severity: 'neutral',
       });
     }
   }
 
   // ── 4. Late-night spending ─────────────────────────────────────────
-  // Threshold scales with the user's daily average — Rs. 2,000 is loud for
-  // a low-spender and trivial for a high-spender. Also names the actual
-  // top late-night category instead of guessing "food orders".
   const lateNight = summarizeLateNight(debits, now - 30 * DAY_MS, now);
-  const lateNightThreshold = Math.max(
-    summary.dailyAverageThisMonth * 7,
-    1000 // floor so a very-low-spender still sees the pattern
-  );
+  const lateNightThreshold = Math.max(summary.dailyAverageThisMonth * 7, 1000);
   if (
     lateNight.total > lateNightThreshold &&
-    lateNight.total > summary.thisMonth * 0.1 // >10% of month
+    lateNight.total > summary.thisMonth * 0.1
   ) {
-    const tail = lateNight.topCategory
-      ? ` Most of it lands in ${lateNight.topCategory.category} (${lateNight.topCategory.percentage.toFixed(
-          0
-        )}%).`
-      : '';
     insights.push({
-      title: 'Late-night spending stands out',
-      description: `${formatCurrency(
-        lateNight.total
-      )} of your last 30 days happened between 9 PM and midnight.${tail}`,
+      kind: 'lateNight',
+      params: {
+        total: formatCurrency(lateNight.total),
+        tail: lateNight.topCategory
+          ? renderTailToken({
+              kind: 'lateNight',
+              category: lateNight.topCategory.category,
+              percent: lateNight.topCategory.percentage.toFixed(0),
+            })
+          : '',
+        category: lateNight.topCategory?.category ?? '',
+        percent: lateNight.topCategory?.percentage.toFixed(0) ?? '',
+      },
       severity: 'neutral',
     });
   }
 
   // ── 5. Frequent merchant ───────────────────────────────────────────
-  // Generalized from the previous Foodpanda-only check. Detects any
-  // merchant transacted with 4+ times in the last week and reports the
-  // user's *actual* total with that merchant — no fabricated averages.
   const frequent = findFrequentMerchant(debits, now - 7 * DAY_MS, now, 4);
   if (frequent) {
     insights.push({
-      title: `${frequent.count} orders at ${frequent.merchant} this week`,
-      description: `That's ${formatCurrency(
-        frequent.total
-      )} across ${frequent.count} transactions — ${formatCurrency(
-        frequent.total / frequent.count
-      )} on average.`,
+      kind: 'frequentMerchant',
+      params: {
+        count: frequent.count,
+        merchant: frequent.merchant,
+        total: formatCurrency(frequent.total),
+        average: formatCurrency(frequent.total / frequent.count),
+      },
       severity: 'neutral',
       category: frequent.category,
     });
   }
 
   // ── 6. Acceleration vs. baseline ───────────────────────────────────
-  // Compare last 3 days' daily average to the prior 14-day baseline (same
-  // unit on both sides). The previous version compared a 7-day projection
-  // to a partial week-to-date, which fires inconsistently depending on
-  // which day of the week the user opens the app.
   if (hasTrendHistory) {
     const last3 = avgPerDay(debits, now - 3 * DAY_MS, now);
     const baseline = avgPerDay(debits, now - 17 * DAY_MS, now - 3 * DAY_MS);
     if (last3 > 0 && baseline > 0 && last3 / baseline > 1.5) {
       insights.push({
-        title: 'Spending pace is accelerating',
-        description: `Your last 3 days average ${formatCurrency(
-          last3
-        )}/day — up from ${formatCurrency(baseline)}/day over the prior two weeks.`,
+        kind: 'accelerating',
+        params: {
+          recent: formatCurrency(last3),
+          baseline: formatCurrency(baseline),
+        },
         severity: 'warning',
       });
     }
   }
 
   // ── 7. Largest single transaction this week ────────────────────────
-  // A simple, always-truthful insight: "this is the biggest thing you spent
-  // money on recently." No statistical claim, no comparison.
   const biggest = biggestThisWeek(debits, now);
   if (biggest && biggest.amount >= summary.dailyAverageThisMonth * 2) {
     insights.push({
-      title: 'Biggest spend this week',
-      description: `${formatCurrency(biggest.amount)} at ${biggest.merchant} on ${formatWeekday(
-        biggest.timestamp
-      )}.`,
+      kind: 'biggestThisWeek',
+      params: {
+        amount: formatCurrency(biggest.amount),
+        merchant: biggest.merchant,
+        // The localized weekday name is built at render time so language
+        // switching renders it correctly. We pass the raw timestamp.
+        day: biggest.timestamp,
+      },
       severity: 'neutral',
       category: biggest.category,
     });
   }
 
   // ── 8. Better month ────────────────────────────────────────────────
-  // monthlyChange is 0 when lastMonth has no data, so the threshold check
-  // already guards against a misleading "100% better" alert.
   if (hasTrendHistory && summary.monthlyChange < -10) {
     insights.push({
-      title: 'On pace for a better month',
-      description: `You're ${Math.abs(summary.monthlyChange).toFixed(
-        0
-      )}% below last month at this point — ${formatCurrency(summary.thisMonth)} vs ${formatCurrency(summary.lastMonth)}.`,
+      kind: 'betterMonth',
+      params: {
+        change: Math.abs(summary.monthlyChange).toFixed(0),
+        thisMonth: formatCurrency(summary.thisMonth),
+        lastMonth: formatCurrency(summary.lastMonth),
+      },
       severity: 'positive',
     });
   }
@@ -230,6 +229,25 @@ export function generateInsights(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// Renders a tail-fragment that the InsightCard will paste after the main
+// description. Returning a sentinel here lets us keep the engine free of
+// any t() calls — a stable string token the card resolves later. The
+// special prefix avoids accidental collisions with real translation keys.
+function renderTailToken(payload: { kind: InsightKind } & Record<string, string>): string {
+  return `__tail__:${JSON.stringify(payload)}`;
+}
+
+export function decodeTailToken(
+  raw: string
+): ({ kind: InsightKind } & Record<string, string>) | null {
+  if (!raw.startsWith('__tail__:')) return null;
+  try {
+    return JSON.parse(raw.slice('__tail__:'.length));
+  } catch {
+    return null;
+  }
+}
+
 function isWeekend(t: Transaction): boolean {
   const day = new Date(t.timestamp).getDay();
   return day === 0 || day === 6;
@@ -243,9 +261,7 @@ function isWeekday(t: Transaction): boolean {
 interface RangeSummary {
   total: number;
   count: number;
-  /** Distinct calendar days in the window with at least one matching tx. */
   dayCount: number;
-  /** Total / dayCount (0 if no days). */
   daily: number;
 }
 
@@ -304,12 +320,11 @@ function summarizeLateNight(
       topAmount = amt;
     }
   }
-  // Only surface the top category if it accounts for a clear plurality.
-  // Otherwise the "most of it is X" framing would be misleading.
   const topPct = (topAmount / total) * 100;
   return {
     total,
-    topCategory: topCat && topPct >= 40 ? { category: topCat, percentage: topPct } : null,
+    topCategory:
+      topCat && topPct >= 40 ? { category: topCat, percentage: topPct } : null,
   };
 }
 
@@ -371,14 +386,4 @@ function biggestThisWeek(
   return best;
 }
 
-function formatWeekday(ms: number): string {
-  return new Date(ms).toLocaleDateString('en-US', { weekday: 'long' });
-}
-
-function capitalize(str: string): string {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-// Re-export to keep getDailySpendForChart importable from this module if any
-// caller relied on it transitively.
 export { getDailySpendForChart };

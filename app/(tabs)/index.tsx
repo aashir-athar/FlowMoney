@@ -59,6 +59,7 @@ import { SmsPermissionSheet } from '../../components/ui/SmsPermissionSheet';
 import { LAYOUT, RADIUS, SPACING, TYPOGRAPHY } from '../../constants/design';
 import { useColors, useTheme } from '../../hooks/useTheme';
 import { useHaptics, useTransactions } from '../../hooks/useTransactions';
+import { useT } from '../../i18n';
 import {
     isSmsReadingSupported,
     readFinancialSms,
@@ -71,7 +72,8 @@ import {
     getTrendLabel,
 } from '../../utils/analytics';
 
-function getGreeting(): string {
+// Returns the i18n key for the greeting based on local time of day.
+function greetingKey(): 'morning' | 'afternoon' | 'evening' {
   const h = new Date().getHours();
   if (h < 12) return 'morning';
   if (h < 17) return 'afternoon';
@@ -83,6 +85,7 @@ export default function HomeScreen() {
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { light } = useHaptics();
+  const { t, locale } = useT();
   const { summary, recent } = useTransactions();
   const insights = useAppStore((s) => s.insights);
   const subscriptions = useAppStore((s) => s.subscriptions);
@@ -143,7 +146,12 @@ export default function HomeScreen() {
 
   const topTransactions = useMemo(() => recent.slice(0, 5), [recent]);
 
-  const today = format(new Date(), 'EEEE, MMMM d');
+  // date-fns doesn't ship Urdu/Hindi locales by default, so use the
+  // platform Intl formatter to get a localised "Saturday, April 12" header.
+  const today = new Date().toLocaleDateString(
+    locale === 'ur' ? 'ur-PK' : locale === 'hi' ? 'hi-IN' : 'en-US',
+    { weekday: 'long', month: 'long', day: 'numeric' }
+  );
 
   const overBudget =
     summary != null && summary.today > summary.dailyAverageThisMonth * 1.3;
@@ -229,7 +237,7 @@ export default function HomeScreen() {
           <View style={styles.headerLeft}>
             <Text style={[styles.dateText, { color: colors.textTertiary }]}>{today}</Text>
             <Text style={[styles.greetingText, { color: colors.textPrimary }]}>
-              Good {getGreeting()}
+              {t(`greeting.${greetingKey()}`)}
             </Text>
           </View>
 
@@ -240,7 +248,7 @@ export default function HomeScreen() {
                 styles.iconButton,
                 { backgroundColor: colors.surface, borderColor: colors.border },
               ]}
-              accessibilityLabel="Add transaction"
+              accessibilityLabel={t('home.addAccessibility')}
               hitSlop={6}
             >
               <Feather name="plus" size={18} color={colors.textSecondary} />
@@ -265,7 +273,7 @@ export default function HomeScreen() {
           style={styles.heroBlock}
         >
           <Text style={[styles.heroLabel, { color: colors.textTertiary }]}>
-            Today you spent
+            {t('home.todayLabel')}
           </Text>
           <View style={styles.heroRow}>
             <Animated.Text
@@ -295,14 +303,14 @@ export default function HomeScreen() {
             ]}
           >
             <MetricPill
-              label="This week"
+              label={t('home.weekLabel')}
               value={formatCurrency(summary?.thisWeek ?? 0)}
               change={summary?.weeklyChange}
               colors={colors}
             />
             <View style={[styles.pillDivider, { backgroundColor: colors.divider }]} />
             <MetricPill
-              label="This month"
+              label={t('home.monthLabel')}
               value={formatCurrency(summary?.thisMonth ?? 0)}
               change={summary?.monthlyChange}
               colors={colors}
@@ -312,7 +320,7 @@ export default function HomeScreen() {
 
         {/* ── Weekly chart ────────────────────────────────── */}
         <Animated.View entering={FadeInDown.delay(140).springify().damping(20)}>
-          <SectionHeader title="Last 7 days" colors={colors} />
+          <SectionHeader title={t('home.sectionWeekly')} colors={colors} />
           <View
             style={[
               styles.chartCard,
@@ -335,9 +343,13 @@ export default function HomeScreen() {
             <SectionHeader
               // Singular/plural — "Pattern" reads cleaner than "Pattern(s)"
               // when only one card is showing.
-              title={unreadInsights.length === 1 ? 'Pattern' : 'Patterns'}
+              title={t(
+                unreadInsights.length === 1
+                  ? 'home.sectionPattern'
+                  : 'home.sectionPatterns'
+              )}
               colors={colors}
-              actionLabel="See all"
+              actionLabel={t('common.seeAll')}
               onAction={handleSeeInsights}
             />
             {unreadInsights.map((insight) => (
@@ -356,9 +368,9 @@ export default function HomeScreen() {
         {/* ── Recent ──────────────────────────────────────── */}
         <Animated.View entering={FadeInDown.delay(320).springify().damping(20)}>
           <SectionHeader
-            title="Recent"
+            title={t('home.sectionRecent')}
             colors={colors}
-            actionLabel="See all"
+            actionLabel={t('common.seeAll')}
             onAction={handleSeeFeed}
           />
           <View

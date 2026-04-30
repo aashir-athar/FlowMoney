@@ -10,8 +10,9 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { CATEGORY_META, RADIUS, SPACING, SPRING, TYPOGRAPHY } from '../../constants/design';
+import { RADIUS, SPACING, SPRING, TYPOGRAPHY } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
+import { useT } from '../../i18n';
 import { Transaction } from '../../types/transaction';
 import { formatCurrency } from '../../utils/analytics';
 
@@ -33,6 +34,7 @@ export const TransactionRow = memo(function TransactionRow({
   containerStyle,
 }: TransactionRowProps) {
   const colors = useColors();
+  const { t } = useT();
   const scale = useSharedValue(1);
 
   const handlePressIn = useCallback(() => {
@@ -47,7 +49,7 @@ export const TransactionRow = memo(function TransactionRow({
     transform: [{ scale: scale.value }],
   }));
 
-  const meta = CATEGORY_META[transaction.category] ?? CATEGORY_META.other;
+  const categoryLabel = t(`categories.${transaction.category}`);
   const catColor =
     (colors as any)[`category${capitalize(transaction.category)}`] ?? colors.accent;
 
@@ -98,7 +100,7 @@ export const TransactionRow = memo(function TransactionRow({
               { color: isCredit ? colors.positive : colors.textTertiary },
             ]}
           >
-            {isCredit ? 'Income' : meta.label} · {format(new Date(transaction.timestamp), 'h:mm a')}
+            {isCredit ? t('common.income') : categoryLabel} · {format(new Date(transaction.timestamp), 'h:mm a')}
           </Text>
         </View>
 

@@ -161,10 +161,16 @@ function trimDecimals(n: number, maxDecimals: number): string {
 }
 
 /**
- * Get spending trend description
+ * Get spending trend description, localized via i18n. We resolve the
+ * translation lazily through `t()` so this stays a pure function from
+ * the caller's POV — no hook, safe to call outside React.
  */
 export function getTrendLabel(change: number): string {
-  if (Math.abs(change) < 2) return 'on track';
-  if (change > 0) return `up ${Math.abs(change).toFixed(0)}%`;
-  return `down ${Math.abs(change).toFixed(0)}%`;
+  // Lazy import to avoid a circular module load (analytics is imported by
+  // i18n locales indirectly, and i18n's t() is the public surface).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { t } = require('../i18n') as typeof import('../i18n');
+  if (Math.abs(change) < 2) return t('trend.onTrack');
+  const percent = Math.abs(change).toFixed(0);
+  return change > 0 ? t('trend.up', { percent }) : t('trend.down', { percent });
 }

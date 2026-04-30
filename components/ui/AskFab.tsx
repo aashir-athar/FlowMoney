@@ -20,14 +20,17 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LAYOUT, RADIUS, SHADOWS, SPACING, SPRING, TYPOGRAPHY } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
+import { useT } from '../../i18n';
 
 interface AskFabProps {
   onPress: () => void;
   label?: string;
 }
 
-export const AskFab = memo(function AskFab({ onPress, label = 'Ask' }: AskFabProps) {
+export const AskFab = memo(function AskFab({ onPress, label }: AskFabProps) {
   const colors = useColors();
+  const { t } = useT();
+  const resolvedLabel = label ?? t('ask.label');
   const insets = useSafeAreaInsets();
   const scale = useSharedValue(1);
 
@@ -59,12 +62,12 @@ export const AskFab = memo(function AskFab({ onPress, label = 'Ask' }: AskFabPro
           onPressIn={handleIn}
           onPressOut={handleOut}
           accessibilityRole="button"
-          accessibilityLabel="Ask Money Assistant"
+          accessibilityLabel={t('home.askAccessibility')}
           style={[styles.fab, { backgroundColor: colors.accent }]}
           hitSlop={6}
         >
           <Feather name="message-circle" size={18} color="#fff" />
-          <Text style={styles.label}>{label}</Text>
+          <Text style={styles.label}>{resolvedLabel}</Text>
           <View style={styles.dot} />
         </Pressable>
       </Animated.View>

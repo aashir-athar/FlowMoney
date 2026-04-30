@@ -5,6 +5,7 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import { t } from '../i18n';
 import { Transaction, SpendingSummary } from '../types/transaction';
 import { formatCurrency } from '../utils/analytics';
 
@@ -63,17 +64,19 @@ export async function requestNotificationPermissions(): Promise<string | null> {
 export async function notifyTransactionDetected(tx: Transaction): Promise<void> {
   if (tx.type === 'credit') return; // Don't notify on credits — no tension needed
 
-  const messages = [
-    `${formatCurrency(tx.amount)} at ${tx.merchant}`,
-    `You just spent ${formatCurrency(tx.amount)} at ${tx.merchant}`,
-    `${tx.merchant} — ${formatCurrency(tx.amount)}`,
+  const params = { amount: formatCurrency(tx.amount), merchant: tx.merchant };
+  // Cycle through a few phrasings so consecutive notifications don't read
+  // identically. All three keys take the same params shape.
+  const keys = [
+    'notifications.spentShort',
+    'notifications.spent',
+    'notifications.spentDash',
   ];
-
-  const body = messages[Math.floor(Math.random() * messages.length)];
+  const body = t(keys[Math.floor(Math.random() * keys.length)], params);
 
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: 'Transaction detected',
+      title: t('notifications.spentShort', params),
       body,
       data: { type: 'realtime', transactionId: tx.id },
     },
@@ -91,16 +94,13 @@ export async function notifyHighDailySpend(
   const overage = ((todaySpend - dailyAverage) / dailyAverage) * 100;
   if (overage < 30) return;
 
-  const templates = [
-    `You are spending more than usual today — ${formatCurrency(todaySpend)} so far`,
-    `Today is running ${overage.toFixed(0)}% above your average. ${formatCurrency(todaySpend)} spent.`,
-    `Your spending today (${formatCurrency(todaySpend)}) is higher than most days.`,
-  ];
-
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: 'Higher than usual',
-      body: templates[Math.floor(Math.random() * templates.length)],
+      title: t('notifications.overAverageTitle'),
+      body: t('notifications.overAverageBody', {
+        percent: overage.toFixed(0),
+        amount: formatCurrency(todaySpend),
+      }),
       data: { type: 'behavior_alert' },
     },
     trigger: null,

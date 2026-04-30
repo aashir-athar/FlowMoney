@@ -15,6 +15,12 @@ import { StyleSheet, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { setLanguage as applyLanguage } from '../i18n';
+import {
+  reconcileSmsForeground,
+  registerSmsSyncTask,
+  unregisterSmsSyncTask,
+} from '../services/backgroundSync';
 import { detectSubscriptions } from '../services/subscriptionDetector';
 import { generateInsights } from '../services/insightEngine';
 import {
@@ -56,6 +62,16 @@ export default function RootLayout() {
       hydrate();
     }
   }, [fontsLoaded, fontError, hydrate]);
+
+  // Apply the user's persisted language preference whenever it changes.
+  // The i18n module manages a singleton locale + RTL flag — we just feed
+  // it the latest preference and let the hooks-based `useT` notify subscribers.
+  const languagePref = useAppStore((s) => s.preferences.language);
+  const hasHydrated = useAppStore((s) => s.hasHydrated);
+  useEffect(() => {
+    if (!hasHydrated) return;
+    applyLanguage(languagePref);
+  }, [hasHydrated, languagePref]);
 
   // The recommended Expo pattern: hide the splash from the root View's
   // onLayout, AFTER React has actually laid out the first frame. Hiding from
@@ -156,15 +172,25 @@ function useSmsAutoIngest() {
     };
   }, [notificationsEnabled, setNotificationsEnabled]);
 
-  // Start / stop the SMS listener as the permission flag flips.
+  // Start / stop the SMS listener as the permission flag flips. Also wires
+  // the background-fetch task and runs a foreground reconciliation pass so
+  // anything that arrived while the app was killed gets backfilled on open.
   useEffect(() => {
     if (!isSmsReadingSupported()) return;
     if (!smsGranted) {
       stopRef.current?.();
       stopRef.current = null;
+      void unregisterSmsSyncTask();
       return;
     }
     if (stopRef.current) return;
+
+    // Foreground reconciliation: pull anything that arrived since last sync.
+    // Runs once per permission-grant cycle, not on every render.
+    void reconcileSmsForeground();
+    // Periodic OS-driven background fetch — fills the gap when the app is
+    // killed for long stretches. Idempotent.
+    void registerSmsSyncTask();
 
     stopRef.current = startSmsListener(
       (tx) => {

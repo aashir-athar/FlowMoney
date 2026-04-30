@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LAYOUT, RADIUS, SPACING, TYPOGRAPHY } from '../constants/design';
 import { useColors, useTheme } from '../hooks/useTheme';
 import { useHaptics } from '../hooks/useTransactions';
+import { useT } from '../i18n';
 import {
   createChatCompletion,
   GroqRateLimitError,
@@ -42,29 +43,34 @@ interface Message {
   timestamp: number;
 }
 
-const QUICK_PROMPTS = [
-  'Where am I overspending?',
-  'Can I afford something this week?',
-  'How can I save more?',
-  'What is my biggest habit?',
-];
+// Quick prompts are i18n keys; translated at render time so language
+// switches without restart.
+const QUICK_PROMPT_KEYS = [
+  'overspending',
+  'afford',
+  'saveMore',
+  'biggestHabit',
+] as const;
 
 export default function ChatScreen() {
   const colors = useColors();
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { light } = useHaptics();
+  const { t } = useT();
   const flatRef = useRef<FlatList>(null);
 
   const summary = useAppStore((s) => s.summary);
   const transactions = useAppStore((s) => s.transactions);
   const subscriptions = useAppStore((s) => s.subscriptions);
 
-  const [messages, setMessages] = useState<Message[]>([
+  const [messages, setMessages] = useState<Message[]>(() => [
     {
       id: 'welcome',
       role: 'assistant',
-      content: `Your spending this month is ${formatCurrency(summary?.thisMonth ?? 0)}. Ask me anything about your money — I can see your full transaction history.`,
+      content: t('chat.welcome', {
+        amount: formatCurrency(summary?.thisMonth ?? 0),
+      }),
       timestamp: Date.now(),
     },
   ]);
@@ -134,9 +140,7 @@ User financial summary:
 
       try {
         if (!hasGroqApiKey()) {
-          throw new Error(
-            'Groq API key missing. Set expo.extra.groqApiKey in app.json.'
-          );
+          throw new Error(t('chat.errors.noKey'));
         }
 
         const conversationHistory = messages
@@ -181,7 +185,7 @@ User financial summary:
           role: 'assistant',
           content: isRateLimit
             ? (err as GroqRateLimitError).message
-            : 'Could not connect right now. Check your internet and try again.',
+            : t('chat.errors.generic'),
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, errorMsg]);
@@ -205,12 +209,14 @@ User financial summary:
       {
         id: 'welcome',
         role: 'assistant',
-        content: `Your spending this month is ${formatCurrency(summary?.thisMonth ?? 0)}. Ask me anything about your money — I can see your full transaction history.`,
+        content: t('chat.welcome', {
+          amount: formatCurrency(summary?.thisMonth ?? 0),
+        }),
         timestamp: Date.now(),
       },
     ]);
     setInput('');
-  }, [light, summary?.thisMonth]);
+  }, [light, summary?.thisMonth, t]);
 
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
@@ -258,12 +264,12 @@ User financial summary:
         ]}
       >
         <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={8}>
-          <Text style={[styles.backText, { color: colors.accent }]}>Done</Text>
+          <Text style={[styles.backText, { color: colors.accent }]}>{t('chat.backButton')}</Text>
         </Pressable>
         <View style={styles.headerCenter}>
           <View style={[styles.headerDot, { backgroundColor: colors.positive }]} />
           <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
-            Money Assistant
+            {t('chat.headerTitle')}
           </Text>
         </View>
         <Pressable
@@ -277,10 +283,10 @@ User financial summary:
           ]}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel="Start new chat"
+          accessibilityLabel={t('chat.newChatAccessibility')}
         >
           <Feather name="edit" size={18} color={colors.accent} />
-          <Text style={[styles.newChatText, { color: colors.accent }]}>New</Text>
+          <Text style={[styles.newChatText, { color: colors.accent }]}>{t('chat.newChat')}</Text>
         </Pressable>
       </View>
 
@@ -311,18 +317,21 @@ User financial summary:
       {messages.length <= 1 && (
         <Animated.View entering={FadeIn} style={styles.quickPromptsRow}>
           <Text style={[styles.quickPromptsLabel, { color: colors.textTertiary }]}>
-            Ask something
+            {t('chat.quickPromptsLabel')}
           </Text>
           <View style={styles.quickPrompts}>
-            {QUICK_PROMPTS.map((p) => (
-              <Pressable
-                key={p}
-                onPress={() => handleQuickPrompt(p)}
-                style={[styles.quickChip, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              >
-                <Text style={[styles.quickChipText, { color: colors.textSecondary }]}>{p}</Text>
-              </Pressable>
-            ))}
+            {QUICK_PROMPT_KEYS.map((key) => {
+              const text = t(`chat.quickPrompts.${key}`);
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => handleQuickPrompt(text)}
+                  style={[styles.quickChip, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                >
+                  <Text style={[styles.quickChipText, { color: colors.textSecondary }]}>{text}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         </Animated.View>
       )}
@@ -349,7 +358,7 @@ User financial summary:
           ]}
           value={input}
           onChangeText={setInput}
-          placeholder="Ask about your spending..."
+          placeholder={t('chat.inputPlaceholder')}
           placeholderTextColor={colors.textTertiary}
           multiline
           returnKeyType="send"
@@ -367,7 +376,9 @@ User financial summary:
           ]}
         >
           <Text style={[styles.sendText, { color: input.trim() && !inCooldown ? '#fff' : colors.textTertiary }]}>
-            {inCooldown ? `${cooldownSeconds}s` : 'Send'}
+            {inCooldown
+              ? t('chat.cooldown', { seconds: cooldownSeconds })
+              : t('chat.sendButton')}
           </Text>
         </Pressable>
       </View>
