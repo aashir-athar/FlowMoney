@@ -61,9 +61,10 @@ import { useColors, useTheme } from '../../hooks/useTheme';
 import { useHaptics, useTransactions } from '../../hooks/useTransactions';
 import { useT } from '../../i18n';
 import {
+    getSmsPermissionStatus,
     isSmsReadingSupported,
     readFinancialSms,
-    requestSmsPermissions,
+    requestSmsPermissionsDetailed,
 } from '../../services/smsReader';
 import { useAppStore } from '../../store/useAppStore';
 import {
@@ -98,7 +99,7 @@ export default function HomeScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [showSmsSheet, setShowSmsSheet] = useState(false);
-  const [smsPreviouslyDenied, setSmsPreviouslyDenied] = useState(false);
+  const [smsBlocked, setSmsBlocked] = useState(false);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -106,25 +107,37 @@ export default function HomeScreen() {
     setTimeout(() => setRefreshing(false), 600);
   }, [refreshSummary]);
 
-  const handleConnectSms = useCallback(() => {
+  const handleConnectSms = useCallback(async () => {
     light();
+    if (!isSmsReadingSupported()) {
+      // Sheet would dead-end on iOS / Expo Go since there's no permission to
+      // grant — let the disabled state on the trigger speak for itself.
+      return;
+    }
+    // Open straight into the BLOCKED variant when the user has previously
+    // ticked "Don't ask again" — only system settings can fix it.
+    const status = await getSmsPermissionStatus();
+    setSmsBlocked(status === 'blocked');
     setShowSmsSheet(true);
   }, [light]);
 
   const handleConfirmSmsRequest = useCallback(async () => {
     setShowSmsSheet(false);
     if (!isSmsReadingSupported()) return;
-    const granted = await requestSmsPermissions();
-    setSmsPermission(granted);
-    if (!granted) {
-      // OS denied (or "don't ask again"). Reopen with Open Settings CTA so the
-      // user has a way forward instead of repeated silent prompts.
-      setSmsPreviouslyDenied(true);
-      setShowSmsSheet(true);
+    const status = await requestSmsPermissionsDetailed();
+    setSmsPermission(status === 'granted');
+    if (status === 'granted') {
+      const historic = await readFinancialSms(30);
+      addTransactions(historic);
       return;
     }
-    const historic = await readFinancialSms(30);
-    addTransactions(historic);
+    if (status === 'blocked') {
+      // No path forward without system settings — re-open the sheet in
+      // BLOCKED mode. Plain `denied` lets the OS prompt again next tap, so
+      // we just close and let the user retry.
+      setSmsBlocked(true);
+      setShowSmsSheet(true);
+    }
   }, [setSmsPermission, addTransactions]);
 
   const weeklyData = useMemo(
@@ -398,7 +411,7 @@ export default function HomeScreen() {
 
       <SmsPermissionSheet
         visible={showSmsSheet}
-        previouslyDenied={smsPreviouslyDenied}
+        blocked={smsBlocked}
         onConfirm={handleConfirmSmsRequest}
         onDismiss={() => setShowSmsSheet(false)}
       />

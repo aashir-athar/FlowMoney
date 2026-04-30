@@ -317,7 +317,9 @@ export const ur: Translations = {
   },
 
   notifications: {
-    received: '{{amount}} موصول ہوئے',
+    received: '{{merchant}} سے {{amount}} موصول ہوئے',
+    receivedShort: '{{merchant}} سے +{{amount}}',
+    receivedDash: '{{merchant}} — +{{amount}}',
     spent: 'آپ نے ابھی {{merchant}} پر {{amount}} خرچ کیے',
     spentShort: '{{merchant}} پر {{amount}}',
     spentDash: '{{merchant}} — {{amount}}',

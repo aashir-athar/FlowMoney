@@ -18,10 +18,10 @@ import { LAYOUT, RADIUS, SPACING, TYPOGRAPHY } from '../../constants/design';
 import { useColors } from '../../hooks/useTheme';
 import { LanguagePreference, useT } from '../../i18n';
 import {
-  checkSmsPermission,
+  getSmsPermissionStatus,
   isSmsReadingSupported,
   readFinancialSms,
-  requestSmsPermissions,
+  requestSmsPermissionsDetailed,
 } from '../../services/smsReader';
 import { useAppStore } from '../../store/useAppStore';
 import { formatCurrency } from '../../utils/analytics';
@@ -53,12 +53,14 @@ export default function ProfileScreen() {
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
 
   // Two-stage flow:
-  //   1. Tap on the row → open the explainer sheet (SmsPermissionSheet).
-  //   2. From the sheet, "Continue" triggers the OS prompt.
-  // We track `previouslyDenied` so a second visit can offer "Open Settings"
-  // instead of silently failing on Android's "don't ask again".
+  //   1. Tap on the row → check rich status. If `blocked` ("Don't ask again"
+  //      on Android 11+) the only path forward is system settings, so the
+  //      sheet opens straight into the BLOCKED variant. Otherwise it opens
+  //      with the "Continue" CTA.
+  //   2. From the sheet, "Continue" triggers the OS prompt; "Open Settings"
+  //      deep-links into the app's permission screen.
   const [showSheet, setShowSheet] = useState(false);
-  const [previouslyDenied, setPreviouslyDenied] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   const handleSmsPress = useCallback(async () => {
     if (!isSmsReadingSupported()) {
@@ -70,15 +72,8 @@ export default function ProfileScreen() {
     }
     if (preferences.smsPermissionGranted) return;
 
-    // If the OS already has a "denied" verdict, the request will silently
-    // resolve. Detect it up front so we can route the user to Settings.
-    const currentlyGranted = await checkSmsPermission();
-    setPreviouslyDenied(false);
-    if (!currentlyGranted) {
-      // We can't directly distinguish "never asked" from "denied permanently"
-      // in expo-transaction-sms-reader, so we attempt a request inside the
-      // sheet flow and flip `previouslyDenied` if it comes back denied.
-    }
+    const status = await getSmsPermissionStatus();
+    setBlocked(status === 'blocked');
     setShowSheet(true);
   }, [preferences.smsPermissionGranted, t]);
 
@@ -92,17 +87,21 @@ export default function ProfileScreen() {
 
   const handleConfirmRequest = useCallback(async () => {
     setShowSheet(false);
-    const granted = await requestSmsPermissions();
-    setSmsPermission(granted);
-    if (!granted) {
-      // Reopen the sheet in "previouslyDenied" mode so the next tap shows
-      // Open Settings rather than re-prompting.
-      setPreviouslyDenied(true);
-      setShowSheet(true);
+    const status = await requestSmsPermissionsDetailed();
+    setSmsPermission(status === 'granted');
+    if (status === 'granted') {
+      const historic = await readFinancialSms(30);
+      addTransactions(historic);
       return;
     }
-    const historic = await readFinancialSms(30);
-    addTransactions(historic);
+    if (status === 'blocked') {
+      // Only re-open the sheet when the user has BLOCKED the prompt — there
+      // is no path forward without system settings. For plain `denied` the
+      // OS will prompt again on the next tap, so we leave the sheet closed
+      // and let the user retry on their own terms.
+      setBlocked(true);
+      setShowSheet(true);
+    }
   }, [setSmsPermission, addTransactions]);
 
   return (
@@ -315,7 +314,7 @@ export default function ProfileScreen() {
 
       <SmsPermissionSheet
         visible={showSheet}
-        previouslyDenied={previouslyDenied}
+        blocked={blocked}
         onConfirm={handleConfirmRequest}
         onDismiss={() => setShowSheet(false)}
       />

@@ -313,7 +313,9 @@ export const en = {
   },
 
   notifications: {
-    received: 'Received {{amount}}',
+    received: 'Received {{amount}} from {{merchant}}',
+    receivedShort: '+{{amount}} from {{merchant}}',
+    receivedDash: '{{merchant}} — +{{amount}}',
     spent: 'You just spent {{amount}} at {{merchant}}',
     spentShort: '{{amount}} at {{merchant}}',
     spentDash: '{{merchant}} — {{amount}}',

@@ -20,16 +20,18 @@ interface SmsPermissionSheetProps {
   visible: boolean;
   onConfirm: () => void;
   onDismiss: () => void;
-  // When the user previously denied, the OS prompt is silent. Pass true to
-  // surface "Open Settings" instead of "Continue".
-  previouslyDenied?: boolean;
+  // When the user has BLOCKED the prompt ("Don't ask again" on Android 11+),
+  // requestPermissions() resolves silently. Pass true to surface
+  // "Open Settings" instead of "Continue" — that's the only path forward.
+  // Plain `denied` does NOT need this flag — the OS will prompt again.
+  blocked?: boolean;
 }
 
 export const SmsPermissionSheet = memo(function SmsPermissionSheet({
   visible,
   onConfirm,
   onDismiss,
-  previouslyDenied = false,
+  blocked = false,
 }: SmsPermissionSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -109,7 +111,7 @@ export const SmsPermissionSheet = memo(function SmsPermissionSheet({
             />
           </View>
 
-          {previouslyDenied ? (
+          {blocked ? (
             <>
               <Pressable
                 onPress={handleOpenSettings}

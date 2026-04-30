@@ -47,8 +47,8 @@ It is built specifically for the Pakistani market — HBL, UBL, MCB, Meezan, Eas
 - **Always-on SMS auto-ingest** powered by [`expo-transaction-sms-reader`](https://www.npmjs.com/package/expo-transaction-sms-reader). The listener is owned by the root layout and runs the entire time the app is alive — every incoming bank alert becomes a transaction without the user lifting a finger.
 - **Background reconciliation via `expo-background-fetch`** — when the OS wakes the JS engine (~15 min on Android, OS-discretionary on iOS), the task reads any SMS that arrived since the last sync and adds them to the store. Foreground reconcile fires on every launch too, so an app that was force-quit yesterday catches up the moment it reopens.
 - **Lazy native module loading** — the SMS reader is `require`'d inside a try/catch so the app still boots in Expo Go, on iOS, and on web. SMS features no-op on those targets via `isSmsReadingSupported()`; everything else (Home, Feed, Insights, Chat) keeps working.
-- **In-app SMS permission flow** — a `SmsPermissionSheet` explains exactly what we read (bank alerts) and what we don't (everything else) before the OS prompt fires. On a "don't ask again" denial, the sheet re-opens with an "Open Settings" CTA instead of silently failing.
-- **Local notifications on every detected transaction** via `expo-notifications`. The user opts in once and gets an instant "Rs. 850 at Foodpanda" notification the moment the bank's SMS arrives.
+- **In-app SMS permission flow** — a `SmsPermissionSheet` explains exactly what we read (bank alerts) and what we don't (everything else) before the OS prompt fires. The flow is built around the package's four-state status (`granted` / `denied` / `undetermined` / `blocked`): plain `denied` re-prompts the OS naturally on the next tap, while `blocked` ("don't ask again") opens the sheet straight into an "Open Settings" variant — only path forward.
+- **Local notifications on every transaction** via `expo-notifications`. Every genuinely-new transaction — debit *and* credit — fires a system notification. Live SMS gets a notification immediately ("Rs. 850 at Foodpanda" / "+Rs. 25,000 from HBL"); background-sync transactions (those that arrived while the app was force-quit) get the same notifications when the OS wakes the JS engine. Dedup is store-driven — the same SMS arriving twice (dual-SIM, broadcast retries, sync-after-live) produces exactly one notification.
 - **Persistent ledger** via Zustand + AsyncStorage. Transactions, subscriptions, insights, notifications, and preferences survive app reloads, OS upgrades, and force-quits.
 - **Manual entries & deletion** — users can add transactions by hand for things SMS missed, and delete those manual entries from the detail sheet (SMS-sourced transactions are intentionally not deletable: they'd come back on the next backfill).
 - **Groq-powered Money Assistant** — `llama-3.3-70b-versatile` chat completions grounded in the user's real spending summary. Client-side rate limiter keeps free-tier usage healthy. Surfaced via a floating "Ask" FAB available across Home, Feed, and Insights — not buried in a header pill.
@@ -245,11 +245,11 @@ FlowMoney/
 The SMS listener is started in [app/_layout.tsx](app/_layout.tsx) inside `useSmsAutoIngest()`. It:
 
 1. Reconciles the persisted `smsPermissionGranted` flag against the actual OS permission on every cold start (handles the case where the user revokes permission via system settings).
-2. Subscribes to `expo-transaction-sms-reader`'s `addSmsListener` whenever the flag is true.
-3. Calls `addTransaction(tx)` with deduplication — same id, or same merchant+amount+type within 90 seconds, is rejected.
-4. Fires `notifyTransactionDetected(tx)` if notifications are enabled.
+2. Subscribes to `expo-transaction-sms-reader`'s `addSmsListener` with `ignoreOtp: true` and a category-based pre-filter that drops `PROMOTIONAL` events at the top of the handler — only `TRANSACTION` and `OTHER` (the latter as fuel for the regex fallback) reach `ingest`.
+3. Calls `addTransaction(tx)`, which returns a boolean: `true` only if the transaction wasn't already in the store (id-match) and isn't a soft-duplicate (same merchant+amount+type within 90 seconds). Dual-SIM dupes and broadcast retries get rejected here.
+4. Fires `notifyTransactionDetected(tx)` only when `addTransaction` returned `true` *and* notifications are enabled — so the user gets exactly one notification per real SMS.
 
-Switching tabs never tears down the listener. Force-quitting the app does (the package's listener is in-process); on next launch the user gets a 30-day backfill the moment they tap "Tap to enable" in Profile, or instantly through their existing flag if it's still granted.
+Switching tabs never tears down the listener. Force-quitting tears down the in-process listener, but `expo-background-fetch` keeps the pipeline alive: the OS wakes the JS engine every ~15 minutes (Android) or at its discretion (iOS), runs the `SMS_SYNC_TASK` defined in [services/backgroundSync.ts](services/backgroundSync.ts), and fires the same per-transaction notifications via the same `notifyTransactionDetected` path. A foreground reconcile on every launch fills any remaining gap.
 
 ### 2. AsyncStorage-persisted Zustand store
 
@@ -272,28 +272,41 @@ Derived state (`summary`) is intentionally not persisted — it's recomputed on 
 
 ### 3. `expo-transaction-sms-reader` instead of `react-native-get-sms-android`
 
-The original prototype used `react-native-get-sms-android`, a Legacy Native Module that works under SDK 54's interop layer but isn't built for it. The new package is a first-class Expo Module with:
+The original prototype used `react-native-get-sms-android`, a Legacy Native Module that works under SDK 54's interop layer but isn't built for it. The new package (currently `^0.2.2`) is a first-class Expo Module with:
 
-- a confidence-scored native parser (returns 0–0.95 score per SMS),
+- a confidence-scored native parser tuned for Pakistani banks (HBL, UBL, Meezan, Alfalah, Allied, BAH, Easypaisa, JazzCash, SadaPay, NayaPay) — verified parses come back at 0.83–0.95 confidence,
+- a **strict** transaction gate that requires both a past-tense money-moved verb (`debited`, `credited`, `transferred to`, `received from`, …) *and* a currency-tagged amount (`Rs. 500`, `PKR 1,250`, `₹500`) — so promotional SMS like "Win Rs. 10,000" or "Apply for our debit card" no longer false-fire,
+- a four-way classifier (`TRANSACTION` / `OTP` / `PROMOTIONAL` / `OTHER`) exposed via `classifySms` and individual `isLikelyOtpSms` / `isLikelyPromotionalSms` / `isLikelyTransactionSms` gates,
+- a four-state permission helper (`granted` / `denied` / `undetermined` / `blocked`) plus `openAppSettings` for the blocked path,
 - automatic 5-second deduplication on inbound listeners,
 - auto-attach/detach of the BroadcastReceiver based on listener count,
 - an `app.plugin.js` config plugin that injects `READ_SMS` and `RECEIVE_SMS`.
 
-The custom regex parser in [services/smsParser.ts](services/smsParser.ts) is kept as a fallback — when the native parser scores below 0.5 confidence but `isLikelyTransactionSms()` returns true, the local regex bank catches Pakistani-specific phrasings the generic parser misses.
+The custom regex parser in [services/smsParser.ts](services/smsParser.ts) is kept as a fallback for messages the package's parser returns `null` for (rare in v0.2.2). Before invoking the regex, `fromRawWithFallback` runs three explicit rejection layers — `isLikelyPromotionalSms`, `isLikelyOtpSms`, then `isLikelyTransactionSms` — so a stray "Win Rs. 10,000" can't slip past the loose local regex.
 
 ### 4. Local notifications via `expo-notifications`
 
-When SMS auto-ingest fires a debit transaction, the listener calls `notifyTransactionDetected(tx)`. The notification service uses templated messages so consecutive transactions don't all read the same way:
+Every genuinely-new transaction fires a local notification. The notification service in [services/notificationService.ts](services/notificationService.ts) branches title/body keys on `tx.type` and pulls from the locale's three-phrasing rotation so consecutive notifications never read identically:
 
 ```ts
-const messages = [
-  `${formatCurrency(tx.amount)} at ${tx.merchant}`,
-  `You just spent ${formatCurrency(tx.amount)} at ${tx.merchant}`,
-  `${tx.merchant} — ${formatCurrency(tx.amount)}`,
-];
+const titleKey = isCredit ? 'notifications.receivedShort' : 'notifications.spentShort';
+const bodyKeys = isCredit
+  ? ['notifications.receivedShort', 'notifications.received', 'notifications.receivedDash']
+  : ['notifications.spentShort',    'notifications.spent',    'notifications.spentDash'];
+const body = t(bodyKeys[Math.floor(Math.random() * bodyKeys.length)], params);
 ```
 
-Credit transactions don't fire notifications — there's no tension to surface and the bank already alerts on incoming money.
+Three call sites fan in to this single function:
+
+| Path | Where | Gated on |
+|---|---|---|
+| Live SMS, app alive | [app/_layout.tsx](app/_layout.tsx) listener handler | `addTransaction` returned `true` (genuine new tx) and `notificationsEnabled` |
+| Background fetch (app force-quit) | [services/backgroundSync.ts](services/backgroundSync.ts) `defineTask` | `addTransactions(...)` returned a non-empty `Transaction[]` and `notificationsEnabled` |
+| Foreground reconcile (app reopened) | `reconcileSmsForeground()` in same file | same as above |
+
+Dedup is owned by the store: `addTransaction` and `addTransactions` only return what was actually inserted (after id-match and 90-second soft-dupe filtering), so a notification can't fire for a transaction the store already has. The 30-day initial backfill and manual transaction entries deliberately do *not* notify — those are history and user-initiated, not events.
+
+The function is permission-grant only — it never fetches an Expo push token. The app uses `Notifications.scheduleNotificationAsync` exclusively (no remote pushes), so coupling permission grant to push-token retrieval would silently flip the toggle off on builds without server-side FCM credentials. We learned this the hard way.
 
 ### 5. Groq for the chat assistant
 
@@ -422,7 +435,6 @@ npx tsc --noEmit      # Type-check (zero errors expected)
 
 ## Roadmap
 
-- [ ] **Background SMS task** — true background processing via `expo-task-manager` so SMS is captured even when the app is killed (Android 13+ background restrictions apply).
 - [ ] **Encrypted backup** — optional iCloud / Google Drive backup of the AsyncStorage blob.
 - [ ] **Budget envelopes** with progress rings.
 - [ ] **Multi-currency support** (USD, INR, BDT).
@@ -430,7 +442,6 @@ npx tsc --noEmit      # Type-check (zero errors expected)
 - [ ] **Backend proxy for Groq key** — production hardening.
 - [ ] **Home-screen widget** showing today's spend.
 - [ ] **Sentry / PostHog** for crash & funnel telemetry.
-- [ ] **Localization** (Urdu, Hindi).
 - [ ] **Snapshot + parser unit tests** with Jest.
 
 ## License

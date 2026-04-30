@@ -41,8 +41,14 @@ interface AppState {
   hasHydrated: boolean;
 
   // Actions — Transactions
-  addTransaction: (tx: Transaction) => void;
-  addTransactions: (txs: Transaction[]) => void;
+  // Returns `true` iff the transaction was actually added (i.e. wasn't an
+  // id-match or soft-duplicate). Callers use this to gate side-effects that
+  // should only fire for genuinely new transactions (e.g. notifications).
+  addTransaction: (tx: Transaction) => boolean;
+  // Returns the subset of `txs` that were actually added (id-unique and not
+  // a soft-duplicate). Empty array if everything was deduped. Same gating
+  // rationale as `addTransaction`.
+  addTransactions: (txs: Transaction[]) => Transaction[];
   updateTransaction: (id: string, updates: Partial<Transaction>) => void;
   // Manual entries can be deleted from the detail sheet. SMS-sourced
   // transactions are intentionally not deletable here — the SMS is the
@@ -134,14 +140,15 @@ export const useAppStore = create<AppState>()(
       addTransaction: (tx) => {
         const existing = get().transactions;
         if (existing.some((e) => e.id === tx.id) || isLikelyDuplicate(tx, existing)) {
-          return;
+          return false;
         }
         set({ transactions: [tx, ...existing] });
         get().refreshSummary();
+        return true;
       },
 
       addTransactions: (txs) => {
-        if (!txs.length) return;
+        if (!txs.length) return [];
         const existing = get().transactions;
         const fresh: Transaction[] = [];
         for (const tx of txs) {
@@ -150,13 +157,14 @@ export const useAppStore = create<AppState>()(
           if (fresh.some((f) => f.id === tx.id)) continue;
           fresh.push(tx);
         }
-        if (!fresh.length) return;
+        if (!fresh.length) return [];
         set({
           transactions: uniqueById([...fresh, ...existing]).sort(
             (a, b) => b.timestamp - a.timestamp
           ),
         });
         get().refreshSummary();
+        return fresh;
       },
 
       updateTransaction: (id, updates) => {

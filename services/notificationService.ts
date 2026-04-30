@@ -3,7 +3,6 @@
 // Fires the right message at the right emotional moment
 
 import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { t } from '../i18n';
 import { Transaction, SpendingSummary } from '../types/transaction';
@@ -22,12 +21,17 @@ Notifications.setNotificationHandler({
 });
 
 /**
- * Request notification permissions.
- * Returns the granted Expo push token or null.
+ * Request OS permission to show local notifications. Returns `true` iff the
+ * user granted (or had already granted) permission.
+ *
+ * This intentionally does NOT fetch an Expo push token — the app schedules
+ * every notification locally via `scheduleNotificationAsync`, so a remote
+ * push token is never used. Coupling permission grant to token retrieval
+ * caused the Profile toggle to silently flip off on builds without FCM
+ * credentials configured server-side (the token call would throw, the
+ * function would return null, and the caller would interpret that as denial).
  */
-export async function requestNotificationPermissions(): Promise<string | null> {
-  if (!Device.isDevice) return null;
-
+export async function requestNotificationPermissions(): Promise<boolean> {
   const { status: existing } = await Notifications.getPermissionsAsync();
   let finalStatus = existing;
 
@@ -36,51 +40,68 @@ export async function requestNotificationPermissions(): Promise<string | null> {
     finalStatus = status;
   }
 
-  if (finalStatus !== 'granted') return null;
+  if (finalStatus !== 'granted') return false;
 
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('flowmoney', {
-      name: 'FlowMoney',
-      importance: Notifications.AndroidImportance.DEFAULT,
-      vibrationPattern: [0, 150, 100, 150],
-      lightColor: '#7B68EE',
-    });
+    try {
+      await Notifications.setNotificationChannelAsync('flowmoney', {
+        name: 'FlowMoney',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 150, 100, 150],
+        lightColor: '#7B68EE',
+      });
+    } catch (err) {
+      // Channel creation almost never fails in practice, but if it does
+      // (e.g., OEM-modified Android), local notifications still work — they
+      // just land on the OS-default channel. Log and carry on.
+      console.warn('[Notifications] Failed to create notification channel:', err);
+    }
   }
 
-  try {
-    const token = await Notifications.getExpoPushTokenAsync();
-    return token.data;
-  } catch {
-    return null;
-  }
+  return true;
 }
 
 // ─── Notification Types ───────────────────────────────────────────────────────
 
 /**
- * Fire immediately when a transaction is detected via SMS.
- * Creates real-time spending awareness.
+ * Fire a local notification for a newly-ingested transaction. Both debits
+ * and credits are surfaced — every transaction is a moment of awareness.
+ *
+ * Callers are responsible for gating on `notificationsEnabled` and on the
+ * store's dedup signal (`addTransaction` / `addTransactions` return what
+ * was actually added). This function trusts that and does not re-check.
  */
 export async function notifyTransactionDetected(tx: Transaction): Promise<void> {
-  if (tx.type === 'credit') return; // Don't notify on credits — no tension needed
-
+  const isCredit = tx.type === 'credit';
   const params = { amount: formatCurrency(tx.amount), merchant: tx.merchant };
-  // Cycle through a few phrasings so consecutive notifications don't read
-  // identically. All three keys take the same params shape.
-  const keys = [
-    'notifications.spentShort',
-    'notifications.spent',
-    'notifications.spentDash',
-  ];
-  const body = t(keys[Math.floor(Math.random() * keys.length)], params);
+
+  // Title is the short variant so the lock-screen line stays scannable.
+  // Body cycles between three phrasings so consecutive notifications don't
+  // read identically. Credits and debits share the same shape, just
+  // different copy keys.
+  const titleKey = isCredit
+    ? 'notifications.receivedShort'
+    : 'notifications.spentShort';
+  const bodyKeys = isCredit
+    ? [
+        'notifications.receivedShort',
+        'notifications.received',
+        'notifications.receivedDash',
+      ]
+    : [
+        'notifications.spentShort',
+        'notifications.spent',
+        'notifications.spentDash',
+      ];
+  const body = t(bodyKeys[Math.floor(Math.random() * bodyKeys.length)], params);
 
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: t('notifications.spentShort', params),
+      title: t(titleKey, params),
       body,
-      data: { type: 'realtime', transactionId: tx.id },
+      data: { type: 'realtime', transactionId: tx.id, txType: tx.type },
     },
-    trigger: null, // Immediate
+    trigger: null,
   });
 }
 

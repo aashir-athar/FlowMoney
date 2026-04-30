@@ -4,7 +4,9 @@
 // What this is, and isn't:
 //   - It is NOT real-time SMS reception while the app is dead. That requires
 //     a static AndroidManifest BroadcastReceiver registered at install time
-//     — outside the scope of `expo-transaction-sms-reader@0.1.0`.
+//     — outside the scope of `expo-transaction-sms-reader` (the package
+//     intentionally registers its receiver at runtime to avoid Play Store's
+//     default-handler-only review for statically-declared SMS receivers).
 //   - It IS a safety net: every ~15 minutes (Android) / ~30 minutes (iOS,
 //     when the OS feels like it), the JS engine wakes for a few seconds,
 //     reads any SMS that arrived since the last sync, and writes the
@@ -25,7 +27,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
+import { Transaction } from '../types/transaction';
 import { useAppStore } from '../store/useAppStore';
+import { notifyTransactionDetected } from './notificationService';
 import { checkSmsPermission, isSmsReadingSupported, readSmsSince } from './smsReader';
 
 export const SMS_SYNC_TASK = 'flowmoney-sms-sync-v1';
@@ -60,13 +64,18 @@ TaskManager.defineTask(SMS_SYNC_TASK, async () => {
       return BackgroundFetch.BackgroundFetchResult.NoData;
     }
 
-    // The store guards against duplicate ids and soft-duplicate inserts, so
-    // it's safe to feed in everything we found — anything already present
-    // (e.g. delivered live earlier) gets dropped silently.
-    useAppStore.getState().addTransactions(txs);
+    // `addTransactions` returns the subset that was actually added (id-unique
+    // and not a soft-duplicate). Anything already present from a prior live
+    // delivery gets filtered here, so we never double-notify.
+    const added = useAppStore.getState().addTransactions(txs);
     await setLastSyncTimestamp(Date.now());
 
-    console.log(`[BackgroundSync] Reconciled ${txs.length} transaction(s)`);
+    if (added.length === 0) {
+      return BackgroundFetch.BackgroundFetchResult.NoData;
+    }
+
+    await notifyForAddedTransactions(added);
+    console.log(`[BackgroundSync] Reconciled ${added.length} transaction(s)`);
     return BackgroundFetch.BackgroundFetchResult.NewData;
   } catch (err) {
     console.warn('[BackgroundSync] Task failed:', err);
@@ -158,11 +167,37 @@ export async function reconcileSmsForeground(): Promise<void> {
     const since = await getLastSyncTimestamp();
     const txs = await readSmsSince(since);
     if (txs.length > 0) {
-      useAppStore.getState().addTransactions(txs);
-      console.log(`[BackgroundSync] Foreground reconciled ${txs.length} transaction(s)`);
+      const added = useAppStore.getState().addTransactions(txs);
+      await setLastSyncTimestamp(Date.now());
+      if (added.length > 0) {
+        await notifyForAddedTransactions(added);
+        console.log(`[BackgroundSync] Foreground reconciled ${added.length} transaction(s)`);
+      }
+      return;
     }
     await setLastSyncTimestamp(Date.now());
   } catch (err) {
     console.warn('[BackgroundSync] Foreground reconcile failed:', err);
+  }
+}
+
+// ─── Notification fan-out ───────────────────────────────────────────────────
+//
+// Fires one notification per genuinely-new transaction, gated on the user's
+// notifications preference. The OS coalesces these into a single stack on
+// Android — much more useful than a single batched summary, since each
+// notification is tappable and points at a specific transaction id.
+//
+// Errors from `scheduleNotificationAsync` are caught per-transaction so one
+// bad notification can't poison the rest of the batch.
+async function notifyForAddedTransactions(added: Transaction[]): Promise<void> {
+  const enabled = useAppStore.getState().preferences.notificationsEnabled;
+  if (!enabled) return;
+  for (const tx of added) {
+    try {
+      await notifyTransactionDetected(tx);
+    } catch (err) {
+      console.warn('[BackgroundSync] notifyTransactionDetected failed:', err);
+    }
   }
 }

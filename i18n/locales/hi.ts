@@ -313,7 +313,9 @@ export const hi: Translations = {
   },
 
   notifications: {
-    received: '{{amount}} प्राप्त',
+    received: '{{merchant}} से {{amount}} प्राप्त',
+    receivedShort: '{{merchant}} से +{{amount}}',
+    receivedDash: '{{merchant}} — +{{amount}}',
     spent: 'आपने अभी {{merchant}} पर {{amount}} ख़र्च किए',
     spentShort: '{{merchant}} पर {{amount}}',
     spentDash: '{{merchant}} — {{amount}}',

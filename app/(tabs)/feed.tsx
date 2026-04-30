@@ -136,15 +136,40 @@ export default function FeedScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item, index, section }: any) => (
-      <TransactionRow
-        transaction={item}
-        isLast={index === section.data.length - 1}
-        onPress={() => router.push(`/transaction/${item.id}`)}
-        containerStyle={{ backgroundColor: colors.surface }}
-      />
-    ),
-    [colors.surface]
+    ({ item, index, section }: any) => {
+      // Each section renders as a rounded card matching the Home recent-list
+      // (`RADIUS.xl` + hairline border on `colors.border`). The first row
+      // gets the rounded top corners + top border, the last row gets the
+      // rounded bottom corners + bottom border. Middle rows just carry the
+      // left/right hairlines — `TransactionRow` already draws its own
+      // divider on the bottom for non-last rows.
+      const isFirst = index === 0;
+      const isLast = index === section.data.length - 1;
+      return (
+        <TransactionRow
+          transaction={item}
+          isLast={isLast}
+          onPress={() => router.push(`/transaction/${item.id}`)}
+          containerStyle={{
+            backgroundColor: colors.surface,
+            borderLeftWidth: StyleSheet.hairlineWidth,
+            borderRightWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.border,
+            ...(isFirst && {
+              borderTopLeftRadius: RADIUS.xl,
+              borderTopRightRadius: RADIUS.xl,
+              borderTopWidth: StyleSheet.hairlineWidth,
+            }),
+            ...(isLast && {
+              borderBottomLeftRadius: RADIUS.xl,
+              borderBottomRightRadius: RADIUS.xl,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+            }),
+          }}
+        />
+      );
+    },
+    [colors.surface, colors.border]
   );
 
   const keyExtractor = useCallback((item: Transaction) => item.id, []);

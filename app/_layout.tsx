@@ -160,9 +160,9 @@ function useSmsAutoIngest() {
     if (!notificationsEnabled) return;
     let cancelled = false;
     (async () => {
-      const token = await requestNotificationPermissions();
+      const granted = await requestNotificationPermissions();
       if (cancelled) return;
-      if (!token) {
+      if (!granted) {
         // User denied — flip the flag back so the UI stays in sync with reality.
         setNotificationsEnabled(false);
       }
@@ -194,10 +194,12 @@ function useSmsAutoIngest() {
 
     stopRef.current = startSmsListener(
       (tx) => {
-        addTransaction(tx);
-        // Fire a local notification iff the user has opted in. The
-        // notification service already guards against credit transactions.
-        if (notificationsEnabled) {
+        // `addTransaction` returns false on dedup (same id, or same
+        // merchant+amount+type within 90s — covers dual-SIM dupes and
+        // broadcast retries). Gating the notification on that boolean
+        // means the user gets exactly one notification per real SMS.
+        const wasAdded = addTransaction(tx);
+        if (wasAdded && notificationsEnabled) {
           void notifyTransactionDetected(tx);
         }
       },
